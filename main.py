@@ -266,7 +266,7 @@ logging.basicConfig(
 
 # Сервисный режим
 SERVICE_MODE = True
-ADMINS = [122086799, 5183727015]
+ADMINS = [122086799]
 worker_running = True
 
 # Кэширование
@@ -286,9 +286,9 @@ except KeyError as e:
 
 # Конфигурация Google Sheets
 GOOGLE_CREDS = json.loads(GOOGLE_CREDS_JSON)
-SPREADSHEET_NAME = "ShopBotData"
+SPREADSHEET_NAME = "ShopBotDataKRD"
 STATSS_SHEET_NAME = "Статистика_Пользователей"
-ORDERS_SPREADSHEET_NAME = "Копия Заказы МЗ 0.2"
+ORDERS_SPREADSHEET_NAME = "Заказы МЗ 0.2KRD"
 USERS_SHEET_NAME = "Пользователи"
 GAMMA_CLUSTER_SHEET = "Гамма кластер"
 TASKS_SHEET_NAME = "Задачи"
@@ -466,11 +466,12 @@ def get_task_keyboard(task_id: str) -> types.InlineKeyboardMarkup:
 def quick_shop_selection_keyboard() -> types.ReplyKeyboardMarkup:
     """Клавиатура для быстрого выбора из 3 магазинов."""
     builder = ReplyKeyboardBuilder()
-    builder.button(text="🏪 Магазин 7")
-    builder.button(text="🏪 Магазин 14")
-    builder.button(text="🏪 Магазин 94")
+    builder.button(text="🏪 Магазин 8")
+    builder.button(text="🏪 Магазин 92")
+    builder.button(text="🏪 Магазин 147")
+    builder.button(text="🏪 Магазин 165")
     builder.button(text="❌ Отмена") # Добавим кнопку отмены
-    builder.adjust(3, 1) # 3 кнопки в первом ряду, 1 во втором
+    builder.adjust(4, 1) # 3 кнопки в первом ряду, 1 во втором
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -3252,9 +3253,10 @@ async def process_shop_selection(message: types.Message, state: FSMContext):
     
     # Словарь для сопоставления текста кнопки с номером магазина
     shop_mapping = {
-        "🏪 Магазин 7": "7",
-        "🏪 Магазин 14": "14",
-        "🏪 Магазин 94": "94"
+        "🏪 Магазин 8": "8",
+        "🏪 Магазин 92": "92",
+        "🏪 Магазин 147": "147",
+        "🏪 Магазин 165": "165"
     }
     
     if message.text in shop_mapping:
