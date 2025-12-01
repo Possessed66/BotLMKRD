@@ -18,7 +18,7 @@ load_dotenv('secret.env')
 
 try:
     GOOGLE_CREDS_JSON = os.environ['GOOGLE_CREDENTIALS']
-    ORDERS_SPREADSHEET_NAME = "Копия Заказы МЗ 0.2" # Имя таблицы с данными поставщиков
+    ORDERS_SPREADSHEET_NAME = "Заказы МЗ 0.2KRD" # Имя таблицы с данными поставщиков
 except KeyError as e:
     raise RuntimeError(f"Отсутствует обязательная переменная окружения: {e}")
 
