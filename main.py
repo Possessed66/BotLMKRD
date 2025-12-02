@@ -280,9 +280,13 @@ load_dotenv('secret.env')
 # Проверка обязательных переменных
 try:
     BOT_TOKEN = os.environ['BOT_TOKEN']
-    GOOGLE_CREDS_JSON = os.environ['GOOGLE_CREDENTIALS']
 except KeyError as e:
     raise RuntimeError(f"Отсутствует обязательная переменная: {e}")
+
+GOOGLE_CREDENTIALS_FILE = "/root/BotLMKRD/google-credentials.json"
+with open(GOOGLE_CREDENTIALS_FILE, "r", encoding="utf-8") as f:
+    GOOGLE_CREDS = json.load(f)
+
 
 # Конфигурация Google Sheets
 GOOGLE_CREDS = json.loads(GOOGLE_CREDS_JSON)
@@ -2334,7 +2338,7 @@ def initialize_order_queue_table():
 async def add_order_to_queue(user_id: int, order_data: dict) -> bool:
     """Добавляет заказ в очередь на обработку."""
     try:
-        import json
+        
         serialized_data = json.dumps(order_data, ensure_ascii=False, default=str)
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -3127,7 +3131,7 @@ async def handle_csv_document(message: types.Message):
     # Скачиваем файл
     # Создаём уникальное имя файла, чтобы избежать конфликта
     import tempfile
-    import os
+    
     # Лучше использовать временную директорию или директорю, доступную боту
     # и убедиться, что у бота есть права на запись/чтение/удаление
     temp_dir = "/tmp" # Пример. Используйте директорию, доступную вашему боту.
