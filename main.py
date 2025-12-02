@@ -289,7 +289,7 @@ with open(GOOGLE_CREDENTIALS_FILE, "r", encoding="utf-8") as f:
 
 
 # Конфигурация Google Sheets
-GOOGLE_CREDS = json.loads(GOOGLE_CREDS_JSON)
+
 SPREADSHEET_NAME = "ShopBotDataKRD"
 STATSS_SHEET_NAME = "Статистика_Пользователей"
 ORDERS_SPREADSHEET_NAME = "Заказы МЗ 0.2KRD"
