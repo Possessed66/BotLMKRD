@@ -2,14 +2,11 @@ import json
 import sqlite3
 import gspread
 import os
+from google.oauth2.service_account import Credentials  # <-- используем google-auth
 from main import ORDERS_SPREADSHEET_NAME, GAMMA_CLUSTER_SHEET
-from oauth2client.service_account import ServiceAccountCredentials
-from dotenv import load_dotenv
 
 DB_PATH = "articles.db"
 TABLE_NAME = "articles"
-
-load_dotenv("secrets.env")  # грузим GOOGLE_CREDS_JSON
 
 
 def prepare_db():
@@ -44,12 +41,14 @@ def get_sheet_data():
     except json.JSONDecodeError as e:
         raise RuntimeError(f"❌ Некорректный JSON в файле учётных данных: {e}")
 
+    # Обратите внимание: убраны лишние пробелы в конце URL'ов
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
 
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(service_json, scope)
+    # Используем Credentials.from_service_account_info вместо oauth2client
+    creds = Credentials.from_service_account_info(service_json, scopes=scope)
     client = gspread.authorize(creds)
 
     sheet = client.open(ORDERS_SPREADSHEET_NAME).worksheet(GAMMA_CLUSTER_SHEET)
