@@ -12,26 +12,31 @@ from contextlib import contextmanager
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Загрузка переменных окружения (предполагается, что secret.env находится в той же папке)
-from dotenv import load_dotenv
-load_dotenv('secret.env')
+GOOGLE_CREDENTIALS_FILE = os.path.join(os.path.dirname(__file__), "google-credentials.json")
 
-try:
-    GOOGLE_CREDS_JSON = os.environ['GOOGLE_CREDENTIALS']
-    ORDERS_SPREADSHEET_NAME = "Заказы МЗ 0.2KRD" # Имя таблицы с данными поставщиков
-except KeyError as e:
-    raise RuntimeError(f"Отсутствует обязательная переменная окружения: {e}")
-
-# Путь к файлу базы данных SQLite (должен быть в той же папке)
+# Путь к базе данных
 DB_PATH = os.path.join(os.path.dirname(__file__), 'articles.db')
 
-# Имя листа с гамма-кластером (нужно для определения уникальных магазинов)
+# Конфигурация Google Sheets
+ORDERS_SPREADSHEET_NAME = "Заказы МЗ 0.2KRD"
 GAMMA_CLUSTER_SHEET_NAME = "Гамма кластер"
+
+# --- Загрузка учётных данных Google ---
+try:
+    with open(GOOGLE_CREDENTIALS_FILE, "r", encoding="utf-8") as f:
+        GOOGLE_CREDS = json.load(f)
+except FileNotFoundError:
+    raise RuntimeError(f"❌ Файл учётных данных не найден: {GOOGLE_CREDENTIALS_FILE}")
+except json.JSONDecodeError as e:
+    raise RuntimeError(f"❌ Некорректный JSON в файле учётных данных: {e}")
 
 # --- Инициализация Google Sheets ---
 credentials = Credentials.from_service_account_info(
-    json.loads(GOOGLE_CREDS_JSON),
-    scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    GOOGLE_CREDS,
+    scopes=[
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
 )
 gc = gspread.authorize(credentials)
 
