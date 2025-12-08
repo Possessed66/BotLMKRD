@@ -4112,7 +4112,7 @@ async def startup():
         logging.info("✅ Фоновый обработчик очереди заказов запущен.")
         logging.info("✅ Кэш загружен, задачи запущены")
 
-        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         startup_message = f"✅ Бот успешно перезапущен и работает.\nВремя запуска: {current_time}"
 
         for admin_id in ADMINS:
