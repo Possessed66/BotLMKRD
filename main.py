@@ -265,7 +265,7 @@ logging.basicConfig(
 )
 
 # Сервисный режим
-SERVICE_MODE = True
+SERVICE_MODE = False
 ADMINS = [122086799]
 worker_running = True
 
@@ -4111,6 +4111,18 @@ async def startup():
         worker_task = asyncio.create_task(process_order_queue(bot))
         logging.info("✅ Фоновый обработчик очереди заказов запущен.")
         logging.info("✅ Кэш загружен, задачи запущены")
+
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        startup_message = f"✅ Бот успешно перезапущен и работает.\nВремя запуска: {current_time}"
+
+        for admin_id in ADMINS:
+            try:
+                await bot.send_message(chat_id=admin_id, text=startup_message)
+                logging.info(f"✅ Уведомление о запуске отправлено админу {admin_id}")
+            except Exception as e:
+                logging.error(f"❌ Не удалось отправить уведомление админу {admin_id}: {e}")
+
+    
     except Exception as e:
         logging.critical(f"🚨 Критическая ошибка запуска: {str(e)}")
         raise
