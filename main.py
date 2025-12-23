@@ -3003,16 +3003,34 @@ async def process_position(message: types.Message, state: FSMContext):
     await message.answer("🏪 Введите номер магазина (только цифры, без нулей):")
     await state.set_state(Registration.shop)
 
+
 @dp.message(Registration.shop)
 async def process_shop(message: types.Message, state: FSMContext):
     await state.update_data(last_activity=datetime.now().isoformat())
-    shop = message.text.strip()
-    
-    if not shop.isdigit():
+    shop_raw = message.text.strip()
+
+    if not shop_raw.isdigit():
         await message.answer("❌ Номер магазина должен быть числом! Повторите ввод:")
         return
+        
+    shop = str(int(shop_raw))
     
     data = await state.get_data()
+
+    # --- Проверяем наличие обязательных полей ---
+    required_fields = ['name', 'surname', 'position']
+    missing_fields = [field for field in required_fields if field not in data or not data[field]]
+
+    if missing_fields:
+        logging.error(f"Пользователь {message.from_user.id} не прошёл регистрацию: отсутствуют поля: {missing_fields}")
+        await message.answer(
+            "❌ Произошла ошибка при регистрации: отсутствуют необходимые данные. Попробуйте начать регистрацию заново (/start).",
+            reply_markup=main_menu_keyboard(message.from_user.id)
+        )
+        await state.clear() # Убедимся, что состояние очищено
+        return
+
+    # --- Если всё ок, продолжаем ---
     users_sheet.append_row([
         str(message.from_user.id),
         data['name'],
@@ -3022,7 +3040,7 @@ async def process_shop(message: types.Message, state: FSMContext):
         datetime.now().strftime("%d.%m.%Y %H:%M")
     ])
     cache.pop(f"user_{message.from_user.id}", None)  # Сброс кэша пользователя
-    
+
     try:
         # Перезагружаем только кэш пользователей
         users_records = users_sheet.get_all_records()
@@ -3030,9 +3048,9 @@ async def process_shop(message: types.Message, state: FSMContext):
         logging.info(f"✅ Кэш пользователей обновлен после регистрации пользователя {message.from_user.id}")
     except Exception as e:
         logging.error(f"Ошибка обновления кэша пользователей после регистрации {message.from_user.id}: {e}")
-        
-    await message.answer("✅ Регистрация завершена!", 
-                            reply_markup=main_menu_keyboard(message.from_user.id))
+
+    await message.answer("✅ Регистрация завершена!",
+                         reply_markup=main_menu_keyboard(message.from_user.id))
     await state.clear()
 
 
