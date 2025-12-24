@@ -3458,7 +3458,7 @@ async def continue_order_process(message: types.Message, state: FSMContext):
         return
 
     response = (
-        f"Магазин: {selected_shop}\n"
+        f"🏪 Магазин: {selected_shop}\n"
         f"📦 Артикул: {product_info['Артикул']}\n"
         f"🏷️ Название: {product_info['Название']}\n"
         f"🏭 Поставщик: {product_info['Поставщик']}\n"
@@ -3665,7 +3665,7 @@ async def process_order_reason(message: types.Message, state: FSMContext):
     # Формируем сообщение подтверждения (без логики ТОП 0)
     response = (
         "🔎 Проверьте данные заказа:\n"
-        f"Магазин: {selected_shop}\n"
+        f"🏪 Магазин: {selected_shop}\n"
         f"📦 Артикул: {data['article']}\n"
         f"🏷️ Название: {data['product_name']}\n"
         f"🏭 Поставщик: {data['supplier_name']}\n" # Используем supplier_name
@@ -3936,7 +3936,7 @@ async def process_info_request(message: types.Message, state: FSMContext):
         # Формирование ответа
         response = (
             f"🔍 Информация о товаре:\n"
-            f"Магазин: {shop}\n"
+            f"🏪 Магазин: {shop}\n"
             f"📦 Артикул: {product_info['Артикул']}\n"
             f"🏷️ Название: {product_info['Название']}\n"
             f"🔢 Отдел: {product_info['Отдел']}\n"
