@@ -3426,6 +3426,18 @@ async def continue_order_process(message: types.Message, state: FSMContext):
         f"🚚 Дата поставки: {product_info['Дата поставки']}\n"
     )
 
+    # --- НОВОЕ: Информация о каникулах ---
+    holidays = product_info.get('Каникулы', None)
+    exceptions = product_info.get('Исключения', None)
+
+    if holidays:
+        holiday_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(holidays))
+        response += f"\n⚠️ Поставщик находится в каникулах: {holiday_dates}"
+        if exceptions:
+            exception_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(exceptions))
+            response += f"\n✅ Но принимает заказы: {exception_dates}"
+    # --- /НОВОЕ ---
+
     # Сохраняем информацию о товаре в state
     await state.update_data(
         product_name=product_info['Название'],
@@ -3433,7 +3445,9 @@ async def continue_order_process(message: types.Message, state: FSMContext):
         supplier_name=product_info['Поставщик'],
         order_date=product_info['Дата заказа'],
         delivery_date=product_info['Дата поставки'],
-        top_in_shop=product_info.get('Топ в магазине', '0')
+        top_in_shop=product_info.get('Топ в магазине', '0'),
+        holidays=product_info.get('Каникулы', []),
+        exceptions=product_info.get('Исключения', [])
     )
 
     await message.answer(response)
@@ -3453,7 +3467,7 @@ async def continue_order_process(message: types.Message, state: FSMContext):
         # НЕ ТОП 0 - ВВОД КОЛИЧЕСТВА КАК РАНЬШЕ
         await message.answer("🔢 Введите количество товара:", reply_markup=cancel_keyboard())
         await state.set_state(OrderStates.quantity_input)
-
+        
 
 @dp.message(OrderStates.quantity_input_for_top0)
 async def process_quantity_input_for_top0(message: types.Message, state: FSMContext):
@@ -3620,6 +3634,17 @@ async def process_order_reason(message: types.Message, state: FSMContext):
         f"🔢 Кол-во: {data['quantity']}\n"
         f"📝 Причина: {reason}\n"
     )
+    
+    holidays = data.get('holidays', [])  
+    exceptions = data.get('exceptions', [])
+
+    if holidays:
+        holiday_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(holidays))
+        response += f"\n⚠️ Поставщик находится в каникулах: {holiday_dates}"
+        if exceptions:
+            exception_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(exceptions))
+            response += f"\n✅ Но принимает заказы: {exception_dates}"
+
     
     await message.answer(response, reply_markup=confirm_keyboard())
     await state.set_state(OrderStates.confirmation)
