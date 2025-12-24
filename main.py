@@ -2756,6 +2756,8 @@ async def get_product_info(article: str, shop: str) -> Optional[Dict[str, Any]]:
         # Парсинг данных поставщика (используем существующую функцию)
         parsed_supplier = parse_supplier_data(supplier_data)
         order_date, delivery_date = calculate_delivery_date(parsed_supplier)
+        holidays = parsed_supplier.get('holidays', set())
+        exceptions = parsed_supplier.get('exceptions', set())
         
         # === 5. Формирование итогового результата ===
         result = {
