@@ -3959,9 +3959,9 @@ async def process_info_request(message: types.Message, state: FSMContext):
         if holidays:
             holiday_ranges = format_holidays_ranges(holidays)
             response += f"\n⚠️ Поставщик находится в каникулах: {holiday_ranges}"
-                if exceptions:
-                    exception_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(exceptions))
-                    response += f"\n✅ Но принимает заказы: {exception_dates}"
+            if exceptions:
+                exception_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(exceptions))
+                response += f"\n✅ Но принимает заказы: {exception_dates}"
 
         builder = ReplyKeyboardBuilder()
         builder.button(text="🛒 Заказать этот товар")
