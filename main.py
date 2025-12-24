@@ -632,6 +632,43 @@ async def handle_holidays_file(message: types.Message):
         os.unlink(temp_csv_path)
 
 
+def format_holidays_ranges(holidays):
+    """
+    Принимает список дат (datetime.date), возвращает строку вида:
+    "19.12.2025 - 25.12.2025, 27.12.2025, 30.12.2025 - 07.01.2026"
+    """
+    if not holidays:
+        return "нет"
+
+    sorted_dates = sorted(holidays)
+    ranges = []
+    start = sorted_dates[0]
+    end = sorted_dates[0]
+
+    for d in sorted_dates[1:]:
+        if d == end + timedelta(days=1):
+            # Продолжаем диапазон
+            end = d
+        else:
+            # Заканчиваем предыдущий диапазон
+            if start == end:
+                ranges.append(start.strftime("%d.%m.%Y"))
+            else:
+                ranges.append(f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}")
+            # Начинаем новый
+            start = d
+            end = d
+
+    # Не забываем последний
+    if start == end:
+        ranges.append(start.strftime("%d.%m.%Y"))
+    else:
+        ranges.append(f"{start.strftime('%d.%m.%Y')} - {end.strftime('%d.%m.%Y')}")
+
+    return ", ".join(ranges)
+
+
+
 # ===================== ЗАДАЧИ =====================
 def normalize_task_row(task_id: str, row: dict) -> dict:
     return {
@@ -2644,7 +2681,6 @@ def parse_supplier_data(record: dict) -> Dict[str, Any]:
 
 
 def calculate_delivery_date(supplier_data: dict) -> Tuple[str, str]:
-    """Расчет даты доставки с учётом каникул и исключений"""
     today = datetime.now().date()
     current_weekday = today.isoweekday()
 
@@ -2652,29 +2688,30 @@ def calculate_delivery_date(supplier_data: dict) -> Tuple[str, str]:
     holidays = supplier_data.get('holidays', set())
     exceptions = supplier_data.get('exceptions', set())
 
-    # --- 1. Найти ближайший день заказа, пропуская каникулы, но учитывая исключения ---
+    # --- 1. Найти ближайший день заказа ---
     candidate_date = today
     while True:
+        # Проверяем, является ли день заказа по графику
         candidate_weekday = candidate_date.isoweekday()
-        if candidate_weekday in order_days:
-            # Это день заказа — проверяем, не каникулы ли это
-            if candidate_date in holidays:
-                # Но может быть, это исключение?
-                if candidate_date in exceptions:
-                    # Это исключение — можно заказать!
-                    order_date = candidate_date
-                    break
-                else:
-                    # Это каникулы, и не исключение — пропускаем
-                    pass
-            else:
-                # Не каникулы — можно заказать!
-                order_date = candidate_date
-                break
-        # Если не подошёл — идём дальше
+        is_scheduled_order_day = candidate_weekday in order_days
+
+        # Проверяем, является ли день исключением
+        is_exception = candidate_date in exceptions
+
+        # Если это исключение — можно заказать, даже если не день заказа
+        if is_exception:
+            order_date = candidate_date
+            break
+
+        # Если это день заказа и не каникулы — можно заказать
+        if is_scheduled_order_day and candidate_date not in holidays:
+            order_date = candidate_date
+            break
+
+        # Иначе — идём дальше
         candidate_date += timedelta(days=1)
 
-    # --- 2. Рассчитать дату поставки, пропуская каникулы, но учитывая исключения ---
+    # --- 2. Рассчитать дату поставки ---
     delivery_date = order_date
     days_added = 0
     while days_added < supplier_data['delivery_days']:
@@ -2683,7 +2720,7 @@ def calculate_delivery_date(supplier_data: dict) -> Tuple[str, str]:
         if next_day in holidays and next_day not in exceptions:
             delivery_date = next_day
             continue
-        # Иначе — засчитываем день (даже если это исключение или обычный день)
+        # Иначе — засчитываем день
         delivery_date = next_day
         days_added += 1
 
@@ -3434,7 +3471,7 @@ async def continue_order_process(message: types.Message, state: FSMContext):
     exceptions = product_info.get('Исключения', None)
 
     if holidays:
-        holiday_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(holidays))
+        holiday_dates = holiday_ranges = format_holidays_ranges(holidays)
         response += f"\n⚠️ Поставщик находится в каникулах: {holiday_dates}"
         if exceptions:
             exception_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(exceptions))
@@ -3642,7 +3679,7 @@ async def process_order_reason(message: types.Message, state: FSMContext):
     exceptions = data.get('exceptions', [])
 
     if holidays:
-        holiday_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(holidays))
+        holiday_dates = holiday_ranges = format_holidays_ranges(holidays)
         response += f"\n⚠️ Поставщик находится в каникулах: {holiday_dates}"
         if exceptions:
             exception_dates = ", ".join(d.strftime("%d.%m.%Y") for d in sorted(exceptions))
