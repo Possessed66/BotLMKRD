@@ -16,6 +16,7 @@ import psutil
 import sqlite3
 import gspread.utils
 import uuid
+import tempfile
 from contextlib import contextmanager
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.markdown import markdown_decoration
