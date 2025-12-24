@@ -312,6 +312,7 @@ bot = Bot(
 )
 
 dp = Dispatcher()
+dp.include_router(router)
 dp.errors.register(global_error_handler)
 
 
@@ -585,6 +586,50 @@ async def handle_queue_stats(message: types.Message):
         logging.error(f"Ошибка при получении статистики очереди: {e}")
         await message.answer("❌ Ошибка получения статистики.")
         
+
+
+
+
+@router.message(Command("upload_holidays"))
+async def handle_upload_holidays_command(message: Message):
+    Проверка, является ли пользователь админом (если у вас есть такая логика)
+    if message.from_user.id not in ADMINS:
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+
+    await message.answer("📁 Отправьте CSV-файл с данными о каникулах поставщиков (табуляция).")
+
+# --- Обработчик получения файла ---
+@router.message(lambda m: m.document and m.document.mime_type == 'text/csv')
+async def handle_holidays_file(message: Message):
+    
+    if message.from_user.id not in ADMINS:
+         await message.answer("❌ У вас нет прав для выполнения этой команды.")
+         return
+
+    document = message.document
+    file_id = document.file_id
+    file_name = document.file_name
+
+    # Скачиваем файл
+    file = await bot.get_file(file_id)
+    file_path = file.file_path
+
+    # Создаём временный файл
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as temp_file:
+        await bot.download_file(file_path, temp_file.name)
+        temp_csv_path = temp_file.name
+
+    try:
+        # Импортируем данные
+        updated_count = import_holidays_from_csv(temp_csv_path)
+        await message.answer(f"✅ Файл '{file_name}' успешно загружен и обработан. Обновлено {updated_count} записей в базе данных.")
+    except Exception as e:
+        logging.error(f"❌ Ошибка при обработке файла: {e}")
+        await message.answer(f"❌ Ошибка при обработке файла: {str(e)}")
+    finally:
+        # Удаляем временный файл
+        os.unlink(temp_csv_path)
 
 
 # ===================== ЗАДАЧИ =====================
