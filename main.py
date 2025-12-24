@@ -312,7 +312,7 @@ bot = Bot(
 )
 
 dp = Dispatcher()
-dp.include_router(router)
+dp.include_router(Router)
 dp.errors.register(global_error_handler)
 
 
@@ -590,7 +590,7 @@ async def handle_queue_stats(message: types.Message):
 
 
 
-@router.message(Command("upload_holidays"))
+@Router.message(Command("upload_holidays"))
 async def handle_upload_holidays_command(message: Message):
     if message.from_user.id not in ADMINS:
         await message.answer("❌ У вас нет прав для выполнения этой команды.")
@@ -599,7 +599,7 @@ async def handle_upload_holidays_command(message: Message):
     await message.answer("📁 Отправьте CSV-файл с данными о каникулах поставщиков (табуляция).")
 
 # --- Обработчик получения файла ---
-@router.message(lambda m: m.document and m.document.mime_type == 'text/csv')
+@Router.message(lambda m: m.document and m.document.mime_type == 'text/csv')
 async def handle_holidays_file(message: Message):
     
     if message.from_user.id not in ADMINS:
