@@ -6,7 +6,8 @@ import os
 from datetime import datetime, timedelta
 import logging
 
-DB_PATH = "articles.db"
+# --- Убедитесь, что DB_PATH указывает на нужный файл ---
+DB_PATH = "articles.db"  # <-- Путь к вашей базе
 
 def parse_date(date_str):
     """Парсинг даты из строки в формате DD.MM.YYYY"""
@@ -57,7 +58,7 @@ def import_holidays_from_csv(csv_path):
                 pass
 
     with open(csv_path, 'r', encoding='utf-8-sig') as f:  # utf-8-sig — чтобы обработать BOM
-        reader = csv.DictReader(f)  # так как у вас табуляция
+        reader = csv.DictReader(f)  # по умолчанию запятая
 
         updated_count = 0
         for row in reader:
@@ -125,17 +126,3 @@ def import_holidays_from_csv(csv_path):
     conn.close()
     logging.info(f"✅ Импорт каникул завершён. Обновлено {updated_count} записей.")
     return updated_count
-
-# --- Если запускается как скрипт ---
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) != 2:
-        print("Использование: python import_holidays.py <путь_к_csv>")
-        sys.exit(1)
-
-    csv_path = sys.argv[1]
-    if not os.path.exists(csv_path):
-        print(f"❌ Файл {csv_path} не найден.")
-        sys.exit(1)
-
-    import_holidays_from_csv(csv_path)
