@@ -592,7 +592,6 @@ async def handle_queue_stats(message: types.Message):
 
 @router.message(Command("upload_holidays"))
 async def handle_upload_holidays_command(message: Message):
-    Проверка, является ли пользователь админом (если у вас есть такая логика)
     if message.from_user.id not in ADMINS:
         await message.answer("❌ У вас нет прав для выполнения этой команды.")
         return
