@@ -58,7 +58,7 @@ def import_holidays_from_csv(csv_path):
                 pass
 
     with open(csv_path, 'r', encoding='utf-8-sig') as f:  # utf-8-sig — чтобы обработать BOM
-        reader = csv.DictReader(f)  # по умолчанию запятая
+        reader = csv.DictReader(f, delimiter=';')  
 
         updated_count = 0
         for row in reader:
