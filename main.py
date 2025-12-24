@@ -38,6 +38,7 @@ from gspread.exceptions import APIError, SpreadsheetNotFound
 from cachetools import LRUCache
 from rating_module import process_csv_and_update_ratings
 from pathlib import Path
+from import_holidays import import_holidays_from_csv
 
 
 
