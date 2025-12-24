@@ -2766,7 +2766,7 @@ async def get_product_info(article: str, shop: str) -> Optional[Dict[str, Any]]:
             'Дата заказа': order_date,
             'Дата поставки': delivery_date,
             'Номер поставщика': supplier_id,
-            'Топ в магазине': product_data.get('Топ в магазине', '0')
+            'Топ в магазине': product_data.get('Топ в магазине', '0'),
             # --информация о каникулах ---
             'Каникулы': list(holidays) if holidays else None,
             'Исключения': list(exceptions) if exceptions else None,   
