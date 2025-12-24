@@ -590,7 +590,7 @@ async def handle_queue_stats(message: types.Message):
 
 
 @dp.message(Command("upload_holidays"))
-async def handle_upload_holidays_command(message: Message):
+async def handle_upload_holidays_command(message: types.Message):
     if message.from_user.id not in ADMINS:
         await message.answer("❌ У вас нет прав для выполнения этой команды.")
         return
@@ -599,7 +599,7 @@ async def handle_upload_holidays_command(message: Message):
 
 # --- Обработчик получения файла ---
 @dp.message(lambda m: m.document and m.document.mime_type == 'text/csv')
-async def handle_holidays_file(message: Message):
+async def handle_holidays_file(message: types.Message):
     
     if message.from_user.id not in ADMINS:
          await message.answer("❌ У вас нет прав для выполнения этой команды.")
