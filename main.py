@@ -2562,30 +2562,86 @@ def parse_supplier_data(record: dict) -> Dict[str, Any]:
             order_days.append(int(value))
     
     delivery_days = str(record.get('Срок доставки в магазин', '0')).strip()
+
+    # --- Парсим каникулы ---
+    holidays_str = str(record.get('Каникулы список', '')).strip()
+    holidays = set()
+    if holidays_str:
+        for date_str in holidays_str.split(','):
+            date_str = date_str.strip()
+            if date_str:
+                try:
+                    date_obj = datetime.strptime(date_str, "%d.%m.%Y").date()
+                    holidays.add(date_obj)
+                except ValueError:
+                    logging.warning(f"⚠️ Некорректный формат даты каникул: {date_str}")
+
+    # --- Парсим исключения (заказы внутри каникул) ---
+    exceptions_str = str(record.get('Исключения список', '')).strip()  # <-- НОВОЕ ПОЛЕ
+    exceptions = set()
+    if exceptions_str:
+        for date_str in exceptions_str.split(','):
+            date_str = date_str.strip()
+            if date_str:
+                try:
+                    date_obj = datetime.strptime(date_str, "%d.%m.%Y").date()
+                    exceptions.add(date_obj)
+                except ValueError:
+                    logging.warning(f"⚠️ Некорректный формат даты исключения: {date_str}")
+
     return {
         'supplier_id': str(record.get('Номер осн. пост.', '')),
         'order_days': sorted(list(set(order_days))),
-        'delivery_days': int(delivery_days) if delivery_days.isdigit() else 0
+        'delivery_days': int(delivery_days) if delivery_days.isdigit() else 0,
+        'holidays': holidays,
+        'exceptions': exceptions  # <-- Добавляем исключения
     }
 
+
 def calculate_delivery_date(supplier_data: dict) -> Tuple[str, str]:
-    """Расчет даты доставки"""
-    today = datetime.now()
+    """Расчет даты доставки с учётом каникул и исключений"""
+    today = datetime.now().date()
     current_weekday = today.isoweekday()
 
-    # Находим ближайший день заказа
-    nearest_day = None
-    for day in sorted(supplier_data['order_days']):
-        if day >= current_weekday:
-            nearest_day = day
-            break
-    if not nearest_day:
-        nearest_day = min(supplier_data['order_days'])
-    
-    delta_days = (nearest_day - current_weekday) % 7
-    order_date = today + timedelta(days=delta_days)
-    delivery_date = order_date + timedelta(days=supplier_data['delivery_days'])
-    
+    order_days = supplier_data['order_days']
+    holidays = supplier_data.get('holidays', set())
+    exceptions = supplier_data.get('exceptions', set())
+
+    # --- 1. Найти ближайший день заказа, пропуская каникулы, но учитывая исключения ---
+    candidate_date = today
+    while True:
+        candidate_weekday = candidate_date.isoweekday()
+        if candidate_weekday in order_days:
+            # Это день заказа — проверяем, не каникулы ли это
+            if candidate_date in holidays:
+                # Но может быть, это исключение?
+                if candidate_date in exceptions:
+                    # Это исключение — можно заказать!
+                    order_date = candidate_date
+                    break
+                else:
+                    # Это каникулы, и не исключение — пропускаем
+                    pass
+            else:
+                # Не каникулы — можно заказать!
+                order_date = candidate_date
+                break
+        # Если не подошёл — идём дальше
+        candidate_date += timedelta(days=1)
+
+    # --- 2. Рассчитать дату поставки, пропуская каникулы, но учитывая исключения ---
+    delivery_date = order_date
+    days_added = 0
+    while days_added < supplier_data['delivery_days']:
+        next_day = delivery_date + timedelta(days=1)
+        # Если следующий день — каникулы, но не исключение — пропускаем
+        if next_day in holidays and next_day not in exceptions:
+            delivery_date = next_day
+            continue
+        # Иначе — засчитываем день (даже если это исключение или обычный день)
+        delivery_date = next_day
+        days_added += 1
+
     return (
         order_date.strftime("%d.%m.%Y"),
         delivery_date.strftime("%d.%m.%Y")
@@ -2667,6 +2723,9 @@ async def get_product_info(article: str, shop: str) -> Optional[Dict[str, Any]]:
             'Дата поставки': delivery_date,
             'Номер поставщика': supplier_id,
             'Топ в магазине': product_data.get('Топ в магазине', '0')
+            # --информация о каникулах ---
+            'Каникулы': list(holidays) if holidays else None,
+            'Исключения': list(exceptions) if exceptions else None,   
         }
         
         logging.info(f"Успешно получена информация: {result}")
