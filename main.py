@@ -2043,114 +2043,61 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
     reason = data.get('order_reason', '')
     user_id = str(message.from_user.id)
 
-    # Получаем информацию о пользователе (только для общих данных)
+    # Получаем информацию о пользователе
     user_data = await get_user_data(str(user_id))
     user_name = f"{user_data.get('name', 'Не указано')} {user_data.get('surname', '')}".strip() or "Не указано"
-    user_position = user_data.get('position', 'Не указано')
-    
+    user_position = user_data.get('position', 'Не указана')
 
-    # --- РАЗДЕЛЯЕМ артикулы ---
-    top_0_items = [item for item in valid_items if item['top_0']]
-    regular_items = [item for item in valid_items if not item['top_0']]
+    enqueued_count = 0
+    skipped_count = 0
 
-    approved_count = 0
-    pending_approval_count = 0
+    # --- Обработка ВСЕХ артикулов --- (и ТОП 0, и обычные)
+    for item in valid_items:
+        # --- Получаем информацию о товаре ---
+        product_info = await get_product_info(item['article'], selected_shop)
+        if not product_info:
+            logging.error(f"❌ Товар {item['article']} не найден в магазине {selected_shop} при добавлении в очередь.")
+            skipped_count += 1
+            continue
 
-    # --- Обработка ТОП 0 ---
-    for item in top_0_items:
-        
-        item_department = item['department']
-        
-        request_id = str(uuid.uuid4())
-        success_db_create = await create_approval_request(
-            request_id=request_id,
-            user_id=user_id,
-            manager_id=(get_manager_id_by_department(item_department))['id'], 
-            department=item_department, 
-            article=item['article'],
-            shop=selected_shop,
-            product_name=item['name'],
-            product_supplier=item.get('supplier_name', 'N/A'),
-            user_data={ # передаём данные для одобрения
-                'selected_shop': selected_shop,
-                'article': item['article'],
-                'order_reason': reason,
-                'quantity': item['quantity'],
-                'department': item_department, # <-- Передаем правильный department
-                'user_name': user_name,
-                'user_position': user_position,
-                'product_name': item['name'],
-                'delivery_date': item['delivery_date'],
-                'top_0': True
-            }
-        )
+        # --- Получаем отдел товара ---
+        item_department = product_info.get('Отдел', 'Не указано').strip()
+        if item_department == 'Не указано' or not item_department:
+            logging.error(f"❌ Отдел не указан для артикула {item['article']} при добавлении в очередь.")
+            skipped_count += 1
+            continue
 
-        if success_db_create:
-            # Отправка запроса менеджеру
-            manager_info = get_manager_id_by_department(item_department) # <-- Передаем правильный department
-            manager_id = manager_info['id']
-            manager_first_name = manager_info.get('first_name', 'N/A')
-            manager_last_name = manager_info.get('last_name', 'N/A')
-            manager_full_name = f"{manager_first_name} {manager_last_name}".strip() or "Не указано"
-
-            manager_message = (
-                f"🚨 <b>Запрос на одобрение заказа ТОП 0</b>\n"
-                f"👤 Пользователь: @{message.from_user.username or 'N/A'} (ID: {user_id})\n"
-                f"🏪 Магазин: {selected_shop}\n"
-                f"📦 Артикул: {item['article']}\n"
-                f"🏷️ Название: {item['name']}\n"
-                f"🔢 Кол-во: {item['quantity']}\n"
-                f"🏭 Поставщик: {item.get('supplier_name', 'N/A')}\n"
-                f"🔢 Отдел: {item_department}\n" # <-- Передаем правильный department
-                f"📝 Причина заказа: {reason}\n\n"
-                f"Запрос ID: <code>{request_id}</code>"
-            )
-            builder = InlineKeyboardBuilder()
-            builder.button(text="✅ Одобрить", callback_data=f"approve:{request_id}")
-            builder.button(text="❌ Отказать", callback_data=f"start_reject:{request_id}")
-            builder.adjust(2)
-            manager_kb = builder.as_markup()
-
-            try:
-                sent_message = await bot.send_message(chat_id=manager_id, text=manager_message, reply_markup=manager_kb, parse_mode='HTML')
-                await update_approval_request_status(request_id, 'pending', sent_message.message_id)
-                pending_approval_count += 1
-            except Exception as e:
-                logging.error(f"❌ Не удалось отправить запрос менеджеру {manager_id}: {e}")
-                await delete_approval_request(request_id)
-        else:
-            logging.error(f"❌ Не удалось создать запрос на одобрение для артикула {item['article']}")
-
-    # --- Обработка обычных артикулов ---
-    for item in regular_items:
-        item_department = item['department']
+        # --- Подготовим словарь с данными для одного заказа ---
         single_order_data = {
             'selected_shop': selected_shop,
             'article': item['article'],
-            'order_reason': reason,
+            'order_reason': reason, # <-- Одна причина для всех
             'quantity': item['quantity'],
-            'department': item_department, # <-- Передаем правильный department
+            'department': item_department, # <-- Отдел товара
             'user_name': user_name,
             'user_position': user_position,
-            'product_name': item['name'],
-            'supplier_name': item.get('supplier_name', 'N/A'),
-            'order_date': item.get('order_date', 'N/A'),
-            'delivery_date': item['delivery_date'],
-            'top_0': False
+            'product_name': product_info['Название'],
+            'supplier_name': product_info.get('Поставщик', 'Не указано').strip(),
+            'order_date': product_info.get('Дата заказа', 'N/A'), # или 'N/A'
+            'delivery_date': product_info.get('Дата поставки', 'N/A'), # или 'N/A'
+            'top_0': product_info.get('Топ в магазине', '0') == '0', # <-- Определяем здесь
+            'batch_order': True # <-- Флаг, что это из множественного ввода
         }
 
+        # --- Добавляем в очередь ---
         success_enqueue = await add_order_to_queue(user_id, single_order_data)
         if success_enqueue:
-            approved_count += 1
+            enqueued_count += 1
         else:
             logging.error(f"❌ Не удалось добавить в очередь артикул {item['article']}")
+            skipped_count += 1
 
     # --- Итоговое сообщение пользователю ---
     summary_parts = []
-    if approved_count > 0:
-        summary_parts.append(f"✅ {approved_count} артикулов отправлено в очередь.")
-    if pending_approval_count > 0:
-        summary_parts.append(f"⏳ {pending_approval_count} артикулов ждут одобрения МЗ.")
+    if enqueued_count > 0:
+        summary_parts.append(f"✅ {enqueued_count} артикулов отправлено в очередь.")
+    if skipped_count > 0:
+        summary_parts.append(f"❌ {skipped_count} артикулов пропущено (ошибка).")
     if not summary_parts:
         summary_parts.append("❌ Ничего не было отправлено.")
 
@@ -2222,8 +2169,7 @@ def get_manager_id_by_department(department: str) -> Optional[int]:
 
         # Предполагаемая структура листа "МЗ":
         # "ID менеджера" | "Отдел" | "Имя" | "Фамилия"
-        # Для корректной работы убедитесь, что форматы совпадают.
-        # Приведение к str для надежности сравнения.
+        
         for record in managers_records:
             if str(record.get("Отдел")) == str(department):
                 manager_id_raw = record.get("ID менеджера")
@@ -2232,8 +2178,8 @@ def get_manager_id_by_department(department: str) -> Optional[int]:
                         # Преобразуем ID из Google Sheets в int
                         manager_info = {
                             "id": int(manager_id_raw),
-                            "first_name": record.get("Имя", ""),     # Новое поле
-                            "last_name": record.get("Фамилия", ""),  # Новое поле
+                            "first_name": record.get("Имя", ""),     
+                            "last_name": record.get("Фамилия", ""),  
                             "department": record.get("Отдел", "")
                         }
                         return manager_info
@@ -2437,7 +2383,7 @@ async def handle_manager_approval(callback: types.CallbackQuery, state: FSMConte
             # --- ПОДГОТОВКА ДАННЫХ ДЛЯ ОЧЕРЕДИ ---
             import json
             try:
-                original_order_data = json.loads(request_data['user_data']) # <-- Это словарь, который вы передавали в create_approval_request
+                original_order_data = json.loads(request_data['user_data']) 
             except json.JSONDecodeError:
                 logging.error(f"❌ Ошибка десериализации user_data для запроса {request_id}")
                 await callback.answer("❌ Ошибка обработки данных.", show_alert=True)
@@ -2909,9 +2855,9 @@ async def process_order_queue(bot_instance):
                         {'range': f'R{next_row}', 'values': [[user_id]]}
                     ]
                     department_sheet.batch_update(updates)
-                    # --- КОНЕЦ ОПЕРАЦИИ ЗАПИСИ ---
                     
-                    # --- УСПЕХ ---
+                    
+                   
                     update_order_status(order_id, 'completed')
                     logging.info(f"✅ Заказ ID {order_id} для пользователя {user_id} успешно записан в таблицу {order_data['department']} строка {next_row}")
                     
