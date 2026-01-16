@@ -2065,7 +2065,7 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
         success_db_create = await create_approval_request(
             request_id=request_id,
             user_id=user_id,
-            manager_id=(await get_manager_id_by_department(item_department))['id'], 
+            manager_id=(get_manager_id_by_department(item_department))['id'], 
             department=item_department, 
             article=item['article'],
             shop=selected_shop,
@@ -2087,7 +2087,7 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
 
         if success_db_create:
             # Отправка запроса менеджеру
-            manager_info = await get_manager_id_by_department(item_department) # <-- Передаем правильный department
+            manager_info = get_manager_id_by_department(item_department) # <-- Передаем правильный department
             manager_id = manager_info['id']
             manager_first_name = manager_info.get('first_name', 'N/A')
             manager_last_name = manager_info.get('last_name', 'N/A')
