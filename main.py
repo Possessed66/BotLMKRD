@@ -2416,7 +2416,6 @@ async def handle_manager_approval(callback: types.CallbackQuery, state: FSMConte
         # Обновляем сообщение менеджера
         try:
             status_text = "одобрен" if request_data['status'] == 'approved' else "отклонен"
-        # ИСПОЛЬЗУЕМ callback.message.text ВМЕСТО callback.message.text_markdown_v2
             original_text = callback.message.text or "Запрос на одобрение"
             await callback.message.edit_text(
                 f"{original_text}\n\n<i>Статус уже изменен: {status_text}</i>",
@@ -2435,34 +2434,90 @@ async def handle_manager_approval(callback: types.CallbackQuery, state: FSMConte
         # --- Одобрение ---
         success = await update_approval_request_status(request_id, 'approved')
         if success:
-            # --- Уведомление пользователя ---
-            user_message = (
-                f"✅ <b>Менеджер одобрил заказ артикула {article} {product_name} для магазина {shop}.</b>\n"
-                f"Нажмите кнопку ниже, чтобы продолжить оформление заказа."
-            )
-            # Используем InlineKeyboardBuilder
-            builder = InlineKeyboardBuilder()
-            builder.button(text="🔁 Продолжить заказ", callback_data=f"continue_order:{request_id}")
-            user_kb = builder.as_markup()
-
+            # --- ПОДГОТОВКА ДАННЫХ ДЛЯ ОЧЕРЕДИ ---
+            import json
             try:
-                await bot.send_message(chat_id=user_id, text=user_message, reply_markup=user_kb, parse_mode='HTML')
-                await callback.answer("✅ Заказ одобрен. Пользователь уведомлен.", show_alert=True)
-                
-                # --- Обновление сообщения менеджера ---
+                original_order_data = json.loads(request_data['user_data']) # <-- Это словарь, который вы передавали в create_approval_request
+            except json.JSONDecodeError:
+                logging.error(f"❌ Ошибка десериализации user_data для запроса {request_id}")
+                await callback.answer("❌ Ошибка обработки данных.", show_alert=True)
+                return
+
+            quantity = original_order_data.get('quantity')
+            reason = original_order_data.get('order_reason') # <-- Причина из списка
+            product_name_from_data = original_order_data.get('product_name')
+            supplier_name = original_order_data.get('supplier_name', 'Не указано')
+            delivery_date = original_order_data.get('delivery_date', 'N/A')
+
+            # --- ПОЛУЧИТЬ ОТДЕЛ ТОВАРА ЧЕРЕЗ get_product_info ---
+            product_info = await get_product_info(article, shop)
+            if not product_info:
+                logging.error(f"❌ Товар {article} не найден в магазине {shop} при обработке одобрения {request_id}.")
+                await callback.answer("❌ Товар не найден.", show_alert=True)
+                return
+
+            item_department = product_info.get('Отдел', 'Не указано').strip()
+            if item_department == 'Не указано' or not item_department:
+                logging.error(f"❌ Отдел не указан для артикула {article} при обработке одобрения {request_id}.")
+                await callback.answer("❌ Отдел товара не указан.", show_alert=True)
+                return
+            # --- /ПОЛУЧИТЬ ОТДЕЛ ТОВАРА ---
+
+            # --- ПОЛУЧИТЬ ИМЯ/ДОЛЖНОСТЬ ПОЛЬЗОВАТЕЛЯ ---
+            user_data = await get_user_data(str(user_id))
+            if not user_data:
+                logging.error(f"❌ Профиль пользователя {user_id} не найден при обработке одобрения {request_id}.")
+                await callback.answer("❌ Профиль пользователя не найден.", show_alert=True)
+                return
+
+            user_name = f"{user_data.get('name', 'Не указано')} {user_data.get('surname', '')}".strip() or "Не указано"
+            user_position = user_data.get('position', 'Не указана')
+            # --- /ПОЛУЧИТЬ ИМЯ/ДОЛЖНОСТЬ ПОЛЬЗОВАТЕЛЯ ---
+
+            # Подготовить данные для добавления в очередь
+            order_data_for_queue = {
+                'selected_shop': shop,
+                'article': article,
+                'order_reason': reason,
+                'quantity': quantity,
+                'department': item_department, # <-- ВАЖНО: отдел товара
+                'user_name': user_name,
+                'user_position': user_position,
+                'product_name': product_name_from_data,
+                'supplier_name': supplier_name,
+                'order_date': 'N/A', # или получите из product_info
+                'delivery_date': delivery_date,
+                'top_0_approved': True, # <-- Флаг, что был ТОП 0 и одобрен
+            }
+
+            # --- ДОБАВЛЕНИЕ В ОЧЕРЕДЬ ---
+            success_enqueue = await add_order_to_queue(user_id, order_data_for_queue)
+
+            if success_enqueue:
+                await callback.answer("✅ Запрос одобрен. Заказ добавлен в очередь.", show_alert=True)
+                # --- Уведомление пользователя ---
+                user_message = (
+                    f"✅ <b>Менеджер одобрил заказ артикула {article} {product_name} для магазина {shop}.</b>\n"
+                    f"Заказ (кол-во: {quantity}) добавлен в очередь на обработку."
+                )
                 try:
-                # ИСПОЛЬЗУЕМ callback.message.text ВМЕСТО callback.message.text_markdown_v2
-                    original_text = callback.message.text or "Запрос на одобрение"
-                    await callback.message.edit_text(
-                        f"{original_text}\n\n✅ <b>Одобрено</b>",
-                        parse_mode='HTML'
-                    )
+                    await bot.send_message(chat_id=user_id, text=user_message, parse_mode='HTML')
                 except Exception as e:
-                    logging.warning(f"Не удалось отредактировать сообщение менеджера (одобрение): {e}")
-                    
+                    logging.error(f"❌ Не удалось отправить уведомление пользователю {user_id}: {e}")
+            else:
+                logging.error(f"❌ Не удалось добавить одобренный заказ {request_id} в очередь.")
+                await callback.answer("❌ Запрос одобрен, но ошибка при добавлении в очередь.", show_alert=True)
+
+            # --- Обновление сообщения менеджера ---
+            try:
+                original_text = callback.message.text or "Запрос на одобрение"
+                await callback.message.edit_text(
+                    f"{original_text}\n\n✅ <b>Одобрено</b>",
+                    parse_mode='HTML'
+                )
             except Exception as e:
-                logging.error(f"❌ Не удалось отправить уведомление пользователю {user_id}: {e}")
-                await callback.answer("✅ Заказ одобрен, но не удалось уведомить пользователя.", show_alert=True)
+                logging.warning(f"Не удалось отредактировать сообщение менеджера (одобрение): {e}")
+
         else:
             await callback.answer("❌ Ошибка при обновлении статуса запроса.", show_alert=True)
 
@@ -2474,22 +2529,19 @@ async def handle_manager_approval(callback: types.CallbackQuery, state: FSMConte
             await callback.message.edit_text(
                 f"{original_text}\n\n📝 <b>Введите причину отказа в следующем сообщении:</b>",
                 parse_mode='HTML'
-                # reply_markup=None # Убираем кнопки
             )
             # Сохраняем request_id в состоянии менеджера
             await state.set_state(ManagerApprovalStates.awaiting_reject_comment)
             # Сохраняем request_id в данных состояния, чтобы потом его использовать
-            # Можно использовать user_id менеджера как ключ, но проще использовать FSMContext напрямую
-            # Для простоты, сохраним в данных состояния текущего менеджера
             await state.update_data(current_reject_request_id=request_id)
-            
+
             await callback.answer("Введите причину отказа в следующем сообщении.", show_alert=True)
         except Exception as e:
             logging.error(f"❌ Ошибка при запросе комментария от менеджера {manager_id}: {e}")
             await callback.answer("❌ Ошибка. Не удалось запросить комментарий.", show_alert=True)
-                    
-        else:
-            await callback.answer("❌ Ошибка при обновлении статуса запроса.", show_alert=True)
+
+    else:
+        await callback.answer("❌ Ошибка при обновлении статуса запроса.", show_alert=True)
                     
 
 
