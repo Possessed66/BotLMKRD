@@ -2045,9 +2045,9 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
 
     # Получаем информацию о пользователе (только для общих данных)
     user_data = await get_user_data(str(user_id))
-    user_name = user_data.get('full_name', 'Не указано')
+    user_name = f"{user_data.get('name', 'Не указано')} {user_data.get('surname', '')}".strip() or "Не указано"
     user_position = user_data.get('position', 'Не указано')
-    # user_department = user_data.get('department', 'Не указано') # <-- Больше не используем
+    
 
     # --- РАЗДЕЛЯЕМ артикулы ---
     top_0_items = [item for item in valid_items if item['top_0']]
@@ -2058,15 +2058,15 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
 
     # --- Обработка ТОП 0 ---
     for item in top_0_items:
-        # --- БЕРЕМ department из самого item ---
+        
         item_department = item['department']
-        # --- /БЕРЕМ ---
+        
         request_id = str(uuid.uuid4())
         success_db_create = await create_approval_request(
             request_id=request_id,
             user_id=user_id,
-            manager_id=(await get_manager_id_by_department(item_department))['id'], # <-- Передаем правильный department
-            department=item_department, # <-- Передаем правильный department
+            manager_id=(await get_manager_id_by_department(item_department))['id'], 
+            department=item_department, 
             article=item['article'],
             shop=selected_shop,
             product_name=item['name'],
@@ -2123,10 +2123,7 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
 
     # --- Обработка обычных артикулов ---
     for item in regular_items:
-        # --- БЕРЕМ department из самого item ---
         item_department = item['department']
-        # --- /БЕРЕМ ---
-        # Подготовим словарь с данными для одного заказа
         single_order_data = {
             'selected_shop': selected_shop,
             'article': item['article'],
@@ -2151,7 +2148,7 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
     # --- Итоговое сообщение пользователю ---
     summary_parts = []
     if approved_count > 0:
-        summary_parts.append(f"✅ {approved_count} обычных артикулов отправлено в очередь.")
+        summary_parts.append(f"✅ {approved_count} артикулов отправлено в очередь.")
     if pending_approval_count > 0:
         summary_parts.append(f"⏳ {pending_approval_count} артикулов ждут одобрения МЗ.")
     if not summary_parts:
