@@ -1969,12 +1969,17 @@ async def continue_batch_order_process(message: types.Message, state: FSMContext
         if product_info:
             top_status = product_info.get('Топ в магазине', '0')
             is_top_0 = (top_status == '0')
+            # --- ПОЛУЧАЕМ отдел из product_info ---
+            item_department = product_info.get('Отдел', 'Не указано').strip()
+            # --- /ПОЛУЧАЕМ ---
             valid_items.append({
                 'article': item['article'],
                 'quantity': item['quantity'],
                 'name': product_info['Название'],
                 'delivery_date': product_info['Дата поставки'],
-                'top_0': is_top_0
+                'top_0': is_top_0,
+                'department': item_department,  # <-- Сохраняем
+                'supplier_name': product_info.get('Поставщик', 'Не указано').strip()
             })
             results_found += 1
         else:
@@ -2038,11 +2043,11 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
     reason = data.get('order_reason', '')
     user_id = str(message.from_user.id)
 
-    # Получаем информацию о пользователе
+    # Получаем информацию о пользователе (только для общих данных)
     user_data = await get_user_data(str(user_id))
     user_name = user_data.get('full_name', 'Не указано')
     user_position = user_data.get('position', 'Не указано')
-    department = user_data.get('department', 'Не указано')
+    # user_department = user_data.get('department', 'Не указано') # <-- Больше не используем
 
     # --- РАЗДЕЛЯЕМ артикулы ---
     top_0_items = [item for item in valid_items if item['top_0']]
@@ -2053,12 +2058,15 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
 
     # --- Обработка ТОП 0 ---
     for item in top_0_items:
+        # --- БЕРЕМ department из самого item ---
+        item_department = item['department']
+        # --- /БЕРЕМ ---
         request_id = str(uuid.uuid4())
         success_db_create = await create_approval_request(
             request_id=request_id,
             user_id=user_id,
-            manager_id=await get_manager_id_by_department(department)['id'],
-            department=department,
+            manager_id=(await get_manager_id_by_department(item_department))['id'], # <-- Передаем правильный department
+            department=item_department, # <-- Передаем правильный department
             article=item['article'],
             shop=selected_shop,
             product_name=item['name'],
@@ -2068,7 +2076,7 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
                 'article': item['article'],
                 'order_reason': reason,
                 'quantity': item['quantity'],
-                'department': department,
+                'department': item_department, # <-- Передаем правильный department
                 'user_name': user_name,
                 'user_position': user_position,
                 'product_name': item['name'],
@@ -2079,7 +2087,7 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
 
         if success_db_create:
             # Отправка запроса менеджеру
-            manager_info = await get_manager_id_by_department(department)
+            manager_info = await get_manager_id_by_department(item_department) # <-- Передаем правильный department
             manager_id = manager_info['id']
             manager_first_name = manager_info.get('first_name', 'N/A')
             manager_last_name = manager_info.get('last_name', 'N/A')
@@ -2093,7 +2101,7 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
                 f"🏷️ Название: {item['name']}\n"
                 f"🔢 Кол-во: {item['quantity']}\n"
                 f"🏭 Поставщик: {item.get('supplier_name', 'N/A')}\n"
-                f"🔢 Отдел: {department}\n"
+                f"🔢 Отдел: {item_department}\n" # <-- Передаем правильный department
                 f"📝 Причина заказа: {reason}\n\n"
                 f"Запрос ID: <code>{request_id}</code>"
             )
@@ -2115,13 +2123,16 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
 
     # --- Обработка обычных артикулов ---
     for item in regular_items:
+        # --- БЕРЕМ department из самого item ---
+        item_department = item['department']
+        # --- /БЕРЕМ ---
         # Подготовим словарь с данными для одного заказа
         single_order_data = {
             'selected_shop': selected_shop,
             'article': item['article'],
             'order_reason': reason,
             'quantity': item['quantity'],
-            'department': department,
+            'department': item_department, # <-- Передаем правильный department
             'user_name': user_name,
             'user_position': user_position,
             'product_name': item['name'],
