@@ -347,6 +347,10 @@ class OrderStates(StatesGroup):
     confirmation = State()
     quantity_input_for_top0 = State()
     reason_input_for_top0 = State()
+    waiting_for_quantities_list = State()
+    batch_order_reason_input = State()
+    batch_confirmation = State()
+    batch_shop_selection = State()
 
 class InfoRequest(StatesGroup):
     article_input = State()
@@ -1878,6 +1882,273 @@ async def show_task_details(message: types.Message, state: FSMContext):
     await state.clear()
 
 
+##======================================Множественный Ввод==============================
+
+
+@dp.message(OrderStates.waiting_for_quantities_list, F.text)
+async def process_quantities_list(message: types.Message, state: FSMContext):
+    raw_text = message.text.strip()
+    parts = re.split(r'[,\n\r]+', raw_text)
+    quantities = []
+    for part in parts:
+        part = part.strip()
+        if part.isdigit():
+            quantities.append(int(part))
+
+    # Получаем артикулы из state
+    data = await state.get_data()
+    articles = data.get('art_list', [])
+
+    if len(articles) != len(quantities):
+        await message.answer(f"❌ Количество артикулов ({len(articles)}) и количеств ({len(quantities)}) не совпадает.")
+        return
+
+    # Соединяем в список словарей
+    order_items = []
+    for article, qty in zip(articles, quantities):
+        order_items.append({
+            'article': article,
+            'quantity': qty
+        })
+
+    # Сохраняем список артикулов и количеств в state
+    await state.update_data(batch_order_items=order_items)
+
+    # Запрашиваем магазин (как в старой логике)
+    await message.answer("📌 Выберите магазин для заказа:", reply_markup=quick_shop_selection_keyboard())
+    await state.set_state(OrderStates.batch_shop_selection) # Новое состояние
+
+
+@dp.message(OrderStates.batch_shop_selection)
+async def process_batch_shop_selection(message: types.Message, state: FSMContext):
+    # Словарь для сопоставления текста кнопки с номером магазина
+    shop_mapping = {
+        "🏪 Магазин 8": "8",
+        "🏪 Магазин 92": "92",
+        "🏪 Магазин 147": "147",
+        "🏪 Магазин 150": "150",
+        "🏪 Магазин 165": "165",
+        "🏪 Магазин 255": "255"
+    }
+
+    if message.text in shop_mapping:
+        selected_shop = shop_mapping[message.text]
+        await state.update_data(selected_shop=selected_shop)
+        # Переходим к получению информации и выводу
+        await continue_batch_order_process(message, state)
+    elif message.text == "❌ Отмена":
+        await message.answer("❌ Выбор магазина отменен.", reply_markup=main_menu_keyboard(message.from_user.id))
+        await state.clear()
+    else:
+        await message.answer(
+            "❌ Неверный выбор. Пожалуйста, выберите один из вариантов:",
+            reply_markup=quick_shop_selection_keyboard()
+        )
+
+
+
+async def continue_batch_order_process(message: types.Message, state: FSMContext):
+    """Продолжение обработки заказа списка артикулов после выбора магазина"""
+    data = await state.get_data()
+    order_items = data.get('batch_order_items', []) # Получаем список из state
+    selected_shop = data.get('selected_shop')
+
+    if not order_items or not selected_shop:
+        await message.answer("❌ Ошибка данных заказа.", reply_markup=main_menu_keyboard(message.from_user.id))
+        await state.clear()
+        return
+
+    await message.answer(f"🔄 Загружаю информацию о {len(order_items)} товарах...")
+
+    valid_items = []
+    results_found = 0
+    results_not_found = 0
+
+    for item in order_items:
+        product_info = await get_product_info(item['article'], selected_shop)
+        if product_info:
+            top_status = product_info.get('Топ в магазине', '0')
+            is_top_0 = (top_status == '0')
+            valid_items.append({
+                'article': item['article'],
+                'quantity': item['quantity'],
+                'name': product_info['Название'],
+                'delivery_date': product_info['Дата поставки'],
+                'top_0': is_top_0
+            })
+            results_found += 1
+        else:
+            await message.answer(f"❌ Артикул {item['article']} не найден в магазине {selected_shop}.")
+            results_not_found += 1
+
+    if not valid_items:
+        await message.answer("❌ Ни один из артикулов не может быть заказан.", reply_markup=main_menu_keyboard(message.from_user.id))
+        await state.clear()
+        return
+
+    # Сохраняем валидный список
+    await state.update_data(valid_items=valid_items)
+
+    # Выводим краткий список
+    summary_lines = []
+    for item in valid_items:
+        marker = "⚠️ (ТОП 0)" if item['top_0'] else ""
+        summary_lines.append(f"📦 {item['article']} - {item['name']} - x{item['quantity']} - {item['delivery_date']} {marker}")
+    summary_text = "\n".join(summary_lines)
+    await message.answer(summary_text)
+
+    # Проверяем, есть ли среди них ТОП 0
+    has_top_0 = any(item['top_0'] for item in valid_items)
+
+    if has_top_0:
+        await message.answer("⚠️ Среди артикулов есть ТОП 0. Необходимо одобрение МЗ.")
+    await message.answer("Введите причину заказа.")
+
+    await state.set_state(OrderStates.batch_order_reason_input)
+
+
+@dp.message(OrderStates.batch_order_reason_input, F.text)
+async def process_batch_order_reason(message: types.Message, state: FSMContext):
+    reason = message.text.strip()
+    data = await state.get_data()
+    valid_items = data.get('valid_items', [])
+    selected_shop = data.get('selected_shop')
+    user_id = str(message.from_user.id)
+
+    await state.update_data(order_reason=reason)
+
+    confirm_lines = ["🔎 Проверьте данные заказа:"]
+    confirm_lines.append(f"🏪 Магазин: {selected_shop}")
+    confirm_lines.append("📦 Товары:")
+    for item in valid_items:
+        top_marker = " ⚠️(ТОП 0)" if item['top_0'] else ""
+        confirm_lines.append(f"  - {item['article']} ({item['name']}) x{item['quantity']} - {item['delivery_date']}{top_marker}")
+    confirm_lines.append(f"📝 Причина: {reason}")
+    confirm_text = "\n".join(confirm_lines)
+
+    await message.answer(confirm_text, reply_markup=confirm_keyboard())
+    await state.set_state(OrderStates.batch_confirmation)
+
+
+@dp.message(OrderStates.batch_confirmation, F.text.lower() == "✅ подтвердить")
+async def confirm_batch_order(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    valid_items = data.get('valid_items', [])
+    selected_shop = data.get('selected_shop')
+    reason = data.get('order_reason', '')
+    user_id = str(message.from_user.id)
+
+    # Получаем информацию о пользователе
+    user_data = await get_user_data(str(user_id))
+    user_name = user_data.get('full_name', 'Не указано')
+    user_position = user_data.get('position', 'Не указано')
+    department = user_data.get('department', 'Не указано')
+
+    # --- РАЗДЕЛЯЕМ артикулы ---
+    top_0_items = [item for item in valid_items if item['top_0']]
+    regular_items = [item for item in valid_items if not item['top_0']]
+
+    approved_count = 0
+    pending_approval_count = 0
+
+    # --- Обработка ТОП 0 ---
+    for item in top_0_items:
+        request_id = str(uuid.uuid4())
+        success_db_create = await create_approval_request(
+            request_id=request_id,
+            user_id=user_id,
+            manager_id=await get_manager_id_by_department(department)['id'],
+            department=department,
+            article=item['article'],
+            shop=selected_shop,
+            product_name=item['name'],
+            product_supplier=item.get('supplier_name', 'N/A'),
+            user_data={ # передаём данные для одобрения
+                'selected_shop': selected_shop,
+                'article': item['article'],
+                'order_reason': reason,
+                'quantity': item['quantity'],
+                'department': department,
+                'user_name': user_name,
+                'user_position': user_position,
+                'product_name': item['name'],
+                'delivery_date': item['delivery_date'],
+                'top_0': True
+            }
+        )
+
+        if success_db_create:
+            # Отправка запроса менеджеру
+            manager_info = await get_manager_id_by_department(department)
+            manager_id = manager_info['id']
+            manager_first_name = manager_info.get('first_name', 'N/A')
+            manager_last_name = manager_info.get('last_name', 'N/A')
+            manager_full_name = f"{manager_first_name} {manager_last_name}".strip() or "Не указано"
+
+            manager_message = (
+                f"🚨 <b>Запрос на одобрение заказа ТОП 0</b>\n"
+                f"👤 Пользователь: @{message.from_user.username or 'N/A'} (ID: {user_id})\n"
+                f"🏪 Магазин: {selected_shop}\n"
+                f"📦 Артикул: {item['article']}\n"
+                f"🏷️ Название: {item['name']}\n"
+                f"🔢 Кол-во: {item['quantity']}\n"
+                f"🏭 Поставщик: {item.get('supplier_name', 'N/A')}\n"
+                f"🔢 Отдел: {department}\n"
+                f"📝 Причина заказа: {reason}\n\n"
+                f"Запрос ID: <code>{request_id}</code>"
+            )
+            builder = InlineKeyboardBuilder()
+            builder.button(text="✅ Одобрить", callback_data=f"approve:{request_id}")
+            builder.button(text="❌ Отказать", callback_data=f"start_reject:{request_id}")
+            builder.adjust(2)
+            manager_kb = builder.as_markup()
+
+            try:
+                sent_message = await bot.send_message(chat_id=manager_id, text=manager_message, reply_markup=manager_kb, parse_mode='HTML')
+                await update_approval_request_status(request_id, 'pending', sent_message.message_id)
+                pending_approval_count += 1
+            except Exception as e:
+                logging.error(f"❌ Не удалось отправить запрос менеджеру {manager_id}: {e}")
+                await delete_approval_request(request_id)
+        else:
+            logging.error(f"❌ Не удалось создать запрос на одобрение для артикула {item['article']}")
+
+    # --- Обработка обычных артикулов ---
+    for item in regular_items:
+        # Подготовим словарь с данными для одного заказа
+        single_order_data = {
+            'selected_shop': selected_shop,
+            'article': item['article'],
+            'order_reason': reason,
+            'quantity': item['quantity'],
+            'department': department,
+            'user_name': user_name,
+            'user_position': user_position,
+            'product_name': item['name'],
+            'supplier_name': item.get('supplier_name', 'N/A'),
+            'order_date': item.get('order_date', 'N/A'),
+            'delivery_date': item['delivery_date'],
+            'top_0': False
+        }
+
+        success_enqueue = await add_order_to_queue(user_id, single_order_data)
+        if success_enqueue:
+            approved_count += 1
+        else:
+            logging.error(f"❌ Не удалось добавить в очередь артикул {item['article']}")
+
+    # --- Итоговое сообщение пользователю ---
+    summary_parts = []
+    if approved_count > 0:
+        summary_parts.append(f"✅ {approved_count} обычных артикулов отправлено в очередь.")
+    if pending_approval_count > 0:
+        summary_parts.append(f"⏳ {pending_approval_count} артикулов ждут одобрения МЗ.")
+    if not summary_parts:
+        summary_parts.append("❌ Ничего не было отправлено.")
+
+    await message.answer(" ".join(summary_parts))
+    await state.clear()
+
 
 # =======================РАБОТА С ЗАПРОСАМИ =======================
 
@@ -3400,19 +3671,39 @@ async def handle_client_order(message: types.Message, state: FSMContext):
 
 @dp.message(OrderStates.article_input)
 async def process_article_input(message: types.Message, state: FSMContext):
-    """Обработка введенного артикула"""
+    """Обработка введенного артикула (одного или списка)"""
     if message.photo:
         await message.answer("📸 Распознавание штрих-кодов отключено. Введите артикул вручную.")
         return
-    article = message.text.strip()
-    
-    if not re.match(r'^\d{4,10}$', article):
-        await message.answer("❌ Неверный формат артикула. Артикул должен состоять из 4-10 цифр.")
+
+    raw_input = message.text.strip()
+
+    # Парсим ввод на список артикулов
+    parts = re.split(r'[,\n\r]+', raw_input)
+    articles = []
+    for part in parts:
+        cleaned = re.sub(r'\D', '', part.strip())
+        if len(cleaned) >= 4 and len(cleaned) <= 10:
+            articles.append(cleaned)
+
+    if not articles:
+        await message.answer("❌ Неверный формат артикула(ов). Артикул должен состоять из 4-10 цифр.")
         return
-        
-    await state.update_data(article=article)
-    await message.answer("📌 Выберите магазин для заказа:", reply_markup=quick_shop_selection_keyboard())
-    await state.set_state(OrderStates.shop_selection)
+
+    if len(articles) == 1:
+        # --- СТАРАЯ ЛОГИКА ---
+        article = articles[0]
+        await state.update_data(article=article)
+        await message.answer("📌 Выберите магазин для заказа:", reply_markup=quick_shop_selection_keyboard())
+        await state.set_state(OrderStates.shop_selection)
+
+    else:
+        # --- НОВАЯ ЛОГИКА ---
+        # Сохраняем список артикулов в state
+        await state.update_data(art_list=articles)
+        await message.answer(f"🔍 Найдено {len(articles)} артикулов. Введите количество для каждого (в том же порядке, через запятую или с новой строки).")
+        # Переходим к вводу количеств
+        await state.set_state(OrderStates.waiting_for_quantities_list)
 
 
 @dp.message(OrderStates.shop_selection)
