@@ -2154,7 +2154,7 @@ async def confirm_batch_order(message: types.Message, state: FSMContext):
     if not summary_parts:
         summary_parts.append("❌ Ничего не было отправлено.")
 
-    await message.answer(" ".join(summary_parts))
+    await message.answer(" ".join(summary_parts), reply_markup=main_menu_keyboard(message.from_user.id))
     await state.clear()
 
 
