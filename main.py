@@ -2112,7 +2112,7 @@ def initialize_approval_requests_table():
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            
+
             # 1. Создание таблицы (без изменений, IF NOT EXISTS предотвратит ошибку, если таблица уже есть)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS approval_requests (
@@ -2132,24 +2132,24 @@ def initialize_approval_requests_table():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            
+
             # 2. Проверка и добавление столбца reject_comment, если его нет
             # Получаем информацию о столбцах таблицы
             cursor.execute("PRAGMA table_info(approval_requests)")
             columns = [info[1] for info in cursor.fetchall()] # info[1] - это имя столбца
-            
+
             if 'reject_comment' not in columns:
                 logging.info("Добавление столбца 'reject_comment' в таблицу 'approval_requests'...")
                 cursor.execute("ALTER TABLE approval_requests ADD COLUMN reject_comment TEXT")
                 logging.info("Столбец 'reject_comment' успешно добавлен.")
             else:
                 logging.debug("Столбец 'reject_comment' уже существует в таблице 'approval_requests'.")
-            
+
             # 3. Создание индекса (без изменений)
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_user_status ON approval_requests(user_id, status)
             ''')
-            
+
             conn.commit()
             logging.info("✅ Таблица approval_requests проверена/инициализирована")
     except Exception as e:
@@ -2169,7 +2169,8 @@ def get_manager_id_by_department(department: str) -> Optional[int]:
 
         # Предполагаемая структура листа "МЗ":
         # "ID менеджера" | "Отдел" | "Имя" | "Фамилия"
-        
+        # Для корректной работы убедитесь, что форматы совпадают.
+        # Приведение к str для надежности сравнения.
         for record in managers_records:
             if str(record.get("Отдел")) == str(department):
                 manager_id_raw = record.get("ID менеджера")
@@ -2178,8 +2179,8 @@ def get_manager_id_by_department(department: str) -> Optional[int]:
                         # Преобразуем ID из Google Sheets в int
                         manager_info = {
                             "id": int(manager_id_raw),
-                            "first_name": record.get("Имя", ""),     
-                            "last_name": record.get("Фамилия", ""),  
+                            "first_name": record.get("Имя", ""),     # Новое поле
+                            "last_name": record.get("Фамилия", ""),  # Новое поле
                             "department": record.get("Отдел", "")
                         }
                         return manager_info
@@ -2262,32 +2263,32 @@ async def update_approval_request_status(
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Формируем SQL-запрос динамически в зависимости от переданных параметров
             # Это базовый пример. В production лучше использовать более безопасные методы,
             # например, отдельные подготовленные выражения для каждой комбинации параметров.
-            
+
             # Определяем, какие параметры переданы, чтобы построить корректный SQL
-            
+
             set_parts = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
             params = [status] # status всегда передается
-            
+
             if manager_message_id is not None:
                 set_parts.append("manager_message_id = ?")
                 params.append(manager_message_id)
-                
+
             if reject_comment is not None:
                 set_parts.append("reject_comment = ?")
                 params.append(reject_comment)
-                
+
             # Добавляем request_id в конец списка параметров для WHERE
             params.append(request_id)
-            
+
             sql = f"UPDATE approval_requests SET {', '.join(set_parts)} WHERE request_id = ?"
-            
+
             cursor.execute(sql, params)
             conn.commit()
-            
+
             if cursor.rowcount > 0:
                 logging.info(f"✅ Статус запроса {request_id} обновлен на '{status}'")
                 # Если был передан комментарий при отказе, логируем его
@@ -2362,6 +2363,7 @@ async def handle_manager_approval(callback: types.CallbackQuery, state: FSMConte
         # Обновляем сообщение менеджера
         try:
             status_text = "одобрен" if request_data['status'] == 'approved' else "отклонен"
+        # ИСПОЛЬЗУЕМ callback.message.text ВМЕСТО callback.message.text_markdown_v2
             original_text = callback.message.text or "Запрос на одобрение"
             await callback.message.edit_text(
                 f"{original_text}\n\n<i>Статус уже изменен: {status_text}</i>",
@@ -2380,90 +2382,34 @@ async def handle_manager_approval(callback: types.CallbackQuery, state: FSMConte
         # --- Одобрение ---
         success = await update_approval_request_status(request_id, 'approved')
         if success:
-            # --- ПОДГОТОВКА ДАННЫХ ДЛЯ ОЧЕРЕДИ ---
-            import json
+            # --- Уведомление пользователя ---
+            user_message = (
+                f"✅ <b>Менеджер одобрил заказ артикула {article} {product_name} для магазина {shop}.</b>\n"
+                f"Нажмите кнопку ниже, чтобы продолжить оформление заказа."
+            )
+            # Используем InlineKeyboardBuilder
+            builder = InlineKeyboardBuilder()
+            builder.button(text="🔁 Продолжить заказ", callback_data=f"continue_order:{request_id}")
+            user_kb = builder.as_markup()
+
             try:
-                original_order_data = json.loads(request_data['user_data']) 
-            except json.JSONDecodeError:
-                logging.error(f"❌ Ошибка десериализации user_data для запроса {request_id}")
-                await callback.answer("❌ Ошибка обработки данных.", show_alert=True)
-                return
+                await bot.send_message(chat_id=user_id, text=user_message, reply_markup=user_kb, parse_mode='HTML')
+                await callback.answer("✅ Заказ одобрен. Пользователь уведомлен.", show_alert=True)
 
-            quantity = original_order_data.get('quantity')
-            reason = original_order_data.get('order_reason') # <-- Причина из списка
-            product_name_from_data = original_order_data.get('product_name')
-            supplier_name = original_order_data.get('supplier_name', 'Не указано')
-            delivery_date = original_order_data.get('delivery_date', 'N/A')
-
-            # --- ПОЛУЧИТЬ ОТДЕЛ ТОВАРА ЧЕРЕЗ get_product_info ---
-            product_info = await get_product_info(article, shop)
-            if not product_info:
-                logging.error(f"❌ Товар {article} не найден в магазине {shop} при обработке одобрения {request_id}.")
-                await callback.answer("❌ Товар не найден.", show_alert=True)
-                return
-
-            item_department = product_info.get('Отдел', 'Не указано').strip()
-            if item_department == 'Не указано' or not item_department:
-                logging.error(f"❌ Отдел не указан для артикула {article} при обработке одобрения {request_id}.")
-                await callback.answer("❌ Отдел товара не указан.", show_alert=True)
-                return
-            # --- /ПОЛУЧИТЬ ОТДЕЛ ТОВАРА ---
-
-            # --- ПОЛУЧИТЬ ИМЯ/ДОЛЖНОСТЬ ПОЛЬЗОВАТЕЛЯ ---
-            user_data = await get_user_data(str(user_id))
-            if not user_data:
-                logging.error(f"❌ Профиль пользователя {user_id} не найден при обработке одобрения {request_id}.")
-                await callback.answer("❌ Профиль пользователя не найден.", show_alert=True)
-                return
-
-            user_name = f"{user_data.get('name', 'Не указано')} {user_data.get('surname', '')}".strip() or "Не указано"
-            user_position = user_data.get('position', 'Не указана')
-            # --- /ПОЛУЧИТЬ ИМЯ/ДОЛЖНОСТЬ ПОЛЬЗОВАТЕЛЯ ---
-
-            # Подготовить данные для добавления в очередь
-            order_data_for_queue = {
-                'selected_shop': shop,
-                'article': article,
-                'order_reason': reason,
-                'quantity': quantity,
-                'department': item_department, # <-- ВАЖНО: отдел товара
-                'user_name': user_name,
-                'user_position': user_position,
-                'product_name': product_name_from_data,
-                'supplier_name': supplier_name,
-                'order_date': 'N/A', # или получите из product_info
-                'delivery_date': delivery_date,
-                'top_0_approved': True, # <-- Флаг, что был ТОП 0 и одобрен
-            }
-
-            # --- ДОБАВЛЕНИЕ В ОЧЕРЕДЬ ---
-            success_enqueue = await add_order_to_queue(user_id, order_data_for_queue)
-
-            if success_enqueue:
-                await callback.answer("✅ Запрос одобрен. Заказ добавлен в очередь.", show_alert=True)
-                # --- Уведомление пользователя ---
-                user_message = (
-                    f"✅ <b>Менеджер одобрил заказ артикула {article} {product_name} для магазина {shop}.</b>\n"
-                    f"Заказ (кол-во: {quantity}) добавлен в очередь на обработку."
-                )
+                # --- Обновление сообщения менеджера ---
                 try:
-                    await bot.send_message(chat_id=user_id, text=user_message, parse_mode='HTML')
+                # ИСПОЛЬЗУЕМ callback.message.text ВМЕСТО callback.message.text_markdown_v2
+                    original_text = callback.message.text or "Запрос на одобрение"
+                    await callback.message.edit_text(
+                        f"{original_text}\n\n✅ <b>Одобрено</b>",
+                        parse_mode='HTML'
+                    )
                 except Exception as e:
-                    logging.error(f"❌ Не удалось отправить уведомление пользователю {user_id}: {e}")
-            else:
-                logging.error(f"❌ Не удалось добавить одобренный заказ {request_id} в очередь.")
-                await callback.answer("❌ Запрос одобрен, но ошибка при добавлении в очередь.", show_alert=True)
+                    logging.warning(f"Не удалось отредактировать сообщение менеджера (одобрение): {e}")
 
-            # --- Обновление сообщения менеджера ---
-            try:
-                original_text = callback.message.text or "Запрос на одобрение"
-                await callback.message.edit_text(
-                    f"{original_text}\n\n✅ <b>Одобрено</b>",
-                    parse_mode='HTML'
-                )
             except Exception as e:
-                logging.warning(f"Не удалось отредактировать сообщение менеджера (одобрение): {e}")
-
+                logging.error(f"❌ Не удалось отправить уведомление пользователю {user_id}: {e}")
+                await callback.answer("✅ Заказ одобрен, но не удалось уведомить пользователя.", show_alert=True)
         else:
             await callback.answer("❌ Ошибка при обновлении статуса запроса.", show_alert=True)
 
@@ -2475,10 +2421,13 @@ async def handle_manager_approval(callback: types.CallbackQuery, state: FSMConte
             await callback.message.edit_text(
                 f"{original_text}\n\n📝 <b>Введите причину отказа в следующем сообщении:</b>",
                 parse_mode='HTML'
+                # reply_markup=None # Убираем кнопки
             )
             # Сохраняем request_id в состоянии менеджера
             await state.set_state(ManagerApprovalStates.awaiting_reject_comment)
             # Сохраняем request_id в данных состояния, чтобы потом его использовать
+            # Можно использовать user_id менеджера как ключ, но проще использовать FSMContext напрямую
+            # Для простоты, сохраним в данных состояния текущего менеджера
             await state.update_data(current_reject_request_id=request_id)
 
             await callback.answer("Введите причину отказа в следующем сообщении.", show_alert=True)
@@ -2486,9 +2435,9 @@ async def handle_manager_approval(callback: types.CallbackQuery, state: FSMConte
             logging.error(f"❌ Ошибка при запросе комментария от менеджера {manager_id}: {e}")
             await callback.answer("❌ Ошибка. Не удалось запросить комментарий.", show_alert=True)
 
-    else:
-        await callback.answer("❌ Ошибка при обновлении статуса запроса.", show_alert=True)
-                    
+        else:
+            await callback.answer("❌ Ошибка при обновлении статуса запроса.", show_alert=True)
+
 
 
 @dp.message(ManagerApprovalStates.awaiting_reject_comment)
@@ -2496,7 +2445,7 @@ async def handle_manager_reject_comment(message: types.Message, state: FSMContex
     """Обработка текстового комментария менеджера при отказе."""
     manager_id = message.from_user.id
     reject_comment = message.text.strip()
-    
+
     if not reject_comment:
         await message.answer("📝 Комментарий не может быть пустым. Пожалуйста, введите причину отказа:")
         return
@@ -2504,7 +2453,7 @@ async def handle_manager_reject_comment(message: types.Message, state: FSMContex
     # Получаем request_id из состояния менеджера
     manager_state_data = await state.get_data()
     request_id = manager_state_data.get('current_reject_request_id')
-    
+
     if not request_id:
         await message.answer("❌ Ошибка состояния. Пожалуйста, начните процесс заново.")
         await state.clear() # Очищаем состояние менеджера
@@ -2541,7 +2490,7 @@ async def handle_manager_reject_comment(message: types.Message, state: FSMContex
         shop = request_data['shop']
         product_name = request_data.get('product_name', 'Неизвестно') # На всякий случай
         rejecting_manager_id = request_data['manager_id']
-        
+
         department_from_request = request_data.get('department', 'Неизвестный отдел')
         rejecting_manager_info = get_manager_id_by_department(department_from_request)
 
@@ -2567,13 +2516,13 @@ async def handle_manager_reject_comment(message: types.Message, state: FSMContex
                 reply_markup=main_menu_keyboard(user_id), # Или другая клавиатура для пользователя
                 parse_mode='HTML'
             )
-            
+
             # Подтверждение менеджеру
             await message.answer(
                 "✅ Отказ оформлен. Пользователь уведомлен с комментарием.",
                 reply_markup=main_menu_keyboard(message.from_user.id) # Или основная клавиатура менеджера
             )
-            
+
         except Exception as e:
             logging.error(f"❌ Не удалось отправить уведомление об отказе пользователю {user_id}: {e}")
             await message.answer(
@@ -2586,7 +2535,7 @@ async def handle_manager_reject_comment(message: types.Message, state: FSMContex
             "❌ Ошибка при оформлении отказа в базе данных.",
             reply_markup=main_menu_keyboard(message.from_user.id)
         )
-    
+
     # В любом случае (успех или ошибка) очищаем состояние менеджера
     await state.clear()
 
@@ -2623,12 +2572,12 @@ async def handle_continue_order(callback: types.CallbackQuery, state: FSMContext
     try:
         await state.set_data(user_data_snapshot)
         logging.info(f"✅ Данные FSM для пользователя {user_id} восстановлены из запроса {request_id}")
-        
+
         article = user_data_snapshot.get('article', 'N/A')
         product_name = user_data_snapshot.get('product_name', 'N/A')
         department = user_data_snapshot.get('department', 'N/A')
         quantity = user_data_snapshot.get('quantity', 'N/A')
-        
+
         # --- Удаление записи из БД ---
         await delete_approval_request(request_id)
 
@@ -2644,7 +2593,7 @@ async def handle_continue_order(callback: types.CallbackQuery, state: FSMContext
             )
         # --- Отправка уведомления пользователю ---
         await callback.answer("✅ Данные восстановлены. Продолжаем заказ...", show_alert=True)
-        
+
         # --- Продолжение процесса заказа ---
         # После восстановления данных, переходим к вводу причины заказа
         # Удаляем предыдущее сообщение с кнопкой (опционально)
@@ -2652,10 +2601,10 @@ async def handle_continue_order(callback: types.CallbackQuery, state: FSMContext
             await callback.message.delete()
         except Exception:
             pass
-            
+
         await callback.message.answer(resume_message, parse_mode='HTML', reply_markup=cancel_keyboard())
         await state.set_state(OrderStates.order_reason_input)
-        
+
     except Exception as e:
         logging.error(f"❌ Ошибка восстановления данных FSM для пользователя {user_id} из запроса {request_id}: {e}")
         await callback.answer("❌ Ошибка восстановления данных. Обратитесь к администратору.", show_alert=True)
