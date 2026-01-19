@@ -2014,6 +2014,12 @@ async def continue_batch_order_process(message: types.Message, state: FSMContext
 
 @dp.message(OrderStates.batch_order_reason_input, F.text)
 async def process_batch_order_reason(message: types.Message, state: FSMContext):
+
+    if not message.text:
+        await message.answer("❌ Ожидается текстовое сообщение. Пожалуйста, введите причину заказа.")
+        return
+
+    
     reason = message.text.strip()
     data = await state.get_data()
     valid_items = data.get('valid_items', [])
@@ -3904,7 +3910,11 @@ async def process_quantity_input(message: types.Message, state: FSMContext):
 
 @dp.message(OrderStates.order_reason_input)
 async def process_order_reason(message: types.Message, state: FSMContext):
-    """Обработка причины заказа (только для НЕ ТОП 0 или после одобрения)"""
+    
+    if not message.text:
+        await message.answer("❌ Ожидается текстовое сообщение. Пожалуйста, введите причину заказа.")
+        return
+        
     reason = message.text.strip()
     await state.update_data(order_reason=reason)
     data = await state.get_data()
