@@ -2618,6 +2618,107 @@ async def handle_continue_order(callback: types.CallbackQuery, state: FSMContext
         await state.clear()
 
 
+
+async def check_and_remind_overdue_approvals(bot_instance: Bot):
+    """
+    Проверяет, есть ли непросроченные запросы на одобрение ТОП 0 старше 2 дней,
+    и отправляет напоминания менеджерам.
+    Теперь включает список ID всех просроченных запросов для удобства поиска.
+    """
+    logging.info("🔍 Начало проверки просроченных запросов на одобрение ТОП 0...")
+    try:
+        # Вычисляем дату, раньше которой считаем запросы просроченными
+        cutoff_time = datetime.now() - timedelta(days=2)
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # Выбираем request_id, manager_id и другие поля, если понадобятся
+            # Фильтруем по статусу и дате создания
+            # Сортировка по manager_id позволяет группировать в цикле
+            cursor.execute("""
+                SELECT request_id, manager_id, user_id, article, created_at
+                FROM approval_requests
+                WHERE status = 'pending' AND created_at < ?
+                ORDER BY manager_id, created_at
+            """, (cutoff_time.isoformat(),))
+            overdue_requests = cursor.fetchall()
+
+        if not overdue_requests:
+            logging.info("📭 Нет просроченных запросов на одобрение.")
+            return
+
+        # Группируем запросы по manager_id
+        manager_requests = {}
+        for req in overdue_requests:
+            # req - это sqlite3.Row, можно обращаться по имени столбца
+            manager_id = req['manager_id']
+            if manager_id not in manager_requests:
+                manager_requests[manager_id] = []
+            # Добавляем всю информацию о запросе, если понадобится в сообщении
+            manager_requests[manager_id].append({
+                'request_id': req['request_id'],
+                'user_id': req['user_id'],
+                'article': req['article'],
+                'created_at': req['created_at'],
+            })
+
+        notified_count = 0
+        for manager_id, requests in manager_requests.items():
+            try:
+                # Формируем сообщение
+                count = len(requests)
+                
+                # --- Формируем список ID запросов ---
+                # Соединяем ID в одну строку, разделённую запятыми
+                # Это делает их легко копируемыми и идентифицируемыми в чате
+                request_id_list = ', '.join([req['request_id'] for req in requests])
+
+                # Новый вариант: список всех ID
+                reminder_text = (
+                    f"⏰ <b>Напоминание о запросах на одобрение ТОП 0</b>\n\n"
+                    f"У вас <b>{count}</b> непросроченных запросов старше 2 дней.\n\n"
+                    f"<b>Список ID запросов:</b>\n<code>{request_id_list}</code>\n\n"
+                    f"Пожалуйста, проверьте и обработайте их в боте."
+                    
+                )
+
+                # Отправляем сообщение менеджеру
+                await bot_instance.send_message(chat_id=manager_id, text=reminder_text, parse_mode='HTML')
+                notified_count += 1
+                logging.info(f"🔔 Напоминание отправлено менеджеру {manager_id} о {count} запросах (IDs: {request_id_list}).")
+                # Делаем небольшую паузу, чтобы не спамить Telegram API
+                await asyncio.sleep(0.1)
+            except Exception as e:
+                logging.error(f"❌ Не удалось отправить напоминание менеджеру {manager_id}: {e}")
+                # Здесь можно добавить логику повторной отправки или уведомления админов
+
+        logging.info(f"✅ Отправлено {notified_count} напоминаний менеджерам о просроченных запросах.")
+
+    except Exception as e:
+        logging.error(f"❌ Ошибка в задаче check_and_remind_overdue_approvals: {e}")
+
+
+
+async def run_reminder_task(bot_instance: Bot):
+    """Циклический запуск задачи проверки просроченных запросов."""
+    global reminder_running
+    logging.info("🚀 Запущена задача напоминаний о просроченных запросах ТОП 0.")
+    while reminder_running:
+        try:
+            # Запускаем проверку
+            await check_and_remind_overdue_approvals(bot_instance)
+            # Ждем 24 часа перед следующей проверкой
+            logging.info("⏰ Задача напоминаний ожидает 24 часа...")
+            await asyncio.sleep(86400) # 86400 секунд = 24 часа
+        except asyncio.CancelledError:
+            logging.info("🛑 Задача напоминаний о просроченных запросах отменена.")
+            break
+        except Exception as e:
+            logging.error(f"🔥 Критическая ошибка в задаче напоминаний: {e}", exc_info=True)
+            # Ждем перед перезапуском цикла, чтобы не уйти в бесконечный крэш
+            await asyncio.sleep(300) # 5 минут
+
+
 # =============================ОЧЕРЕДЬ ЗАКАЗОВ=================================
 
 def initialize_order_queue_table():
@@ -4598,6 +4699,7 @@ async def startup():
         asyncio.create_task(scheduled_cache_update())
         asyncio.create_task(state_cleanup_task())
         asyncio.create_task(check_deadlines())
+        asyncio.create_task(run_reminder_task(bot))
         worker_task = asyncio.create_task(process_order_queue(bot))
         logging.info("✅ Фоновый обработчик очереди заказов запущен.")
         logging.info("✅ Кэш загружен, задачи запущены")
