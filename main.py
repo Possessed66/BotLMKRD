@@ -17,7 +17,7 @@ import sqlite3
 import gspread.utils
 import uuid
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, closing, suppress
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.markdown import markdown_decoration
 from typing import Dict, Any, List, Optional, Tuple
@@ -28,10 +28,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.enums import ParseMode
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
-from aiogram.types import ReplyKeyboardRemove, File, BufferedInputFile, InlineKeyboardMarkup
+from aiogram.types import ReplyKeyboardRemove, File, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import Command
-from contextlib import suppress
 from google.oauth2.service_account import Credentials
 import gspread
 from gspread.exceptions import APIError, SpreadsheetNotFound
@@ -270,6 +269,7 @@ logging.basicConfig(
 SERVICE_MODE = True
 ADMINS = [122086799]
 worker_running = True
+reminder_running = True
 
 # Кэширование
 CACHE_TTL = 43200  # 12 часов
