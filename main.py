@@ -2676,7 +2676,7 @@ async def check_and_remind_overdue_approvals(bot_instance: Bot):
                 # Новый вариант: список всех ID
                 reminder_text = (
                     f"⏰ <b>Напоминание о запросах на одобрение ТОП 0</b>\n\n"
-                    f"У вас <b>{count}</b> непросроченных запросов старше 2 дней.\n\n"
+                    f"У вас <b>{count}</b> просроченных запросов старше 2 дней.\n\n"
                     f"<b>Список ID запросов:</b>\n<code>{request_id_list}</code>\n\n"
                     f"Пожалуйста, проверьте и обработайте их в боте."
                     
@@ -3808,7 +3808,7 @@ async def continue_order_process(message: types.Message, state: FSMContext):
     product_info = await get_product_info(article, selected_shop)
 
     if not product_info:
-        await message.answer("❌ Товар не найден в выбранном магазине", reply_markup=main_menu_keyboard(message.from_user.id))
+        await message.answer("❌ Товар не доступен к заказу обратись к МУТЗ", reply_markup=main_menu_keyboard(message.from_user.id))
         await state.clear()
         return
 
@@ -4278,7 +4278,7 @@ async def process_info_request(message: types.Message, state: FSMContext):
         
         if not product_info:
             logging.warning(f"Товар {article} не найден для магазина {shop} (пользователь: {user_id})")
-            await message.answer("❌ Товар не найден", reply_markup=main_menu_keyboard(message.from_user.id))
+            await message.answer("❌ Товар не доступен к заказу обратись к МУТЗ", reply_markup=main_menu_keyboard(message.from_user.id))
             await state.clear()
             return
 
