@@ -3568,16 +3568,31 @@ async def handle_feedback_start(message: types.Message, state: FSMContext):
 async def handle_feedback_message(message: types.Message, state: FSMContext):
     """Получение и отправка сообщения обратной связи администраторам."""
     feedback_text = message.text
+    
+    
+    user_id = message.from_user.id
+    user_first_name = message.from_user.first_name or "N/A" # На всякий случай, если first_name None
+    user_last_name = message.from_user.last_name or ""
+    user_full_name = f"{user_first_name} {user_last_name}".strip() or "N/A"
+    
 
-    # Отправляем сообщение администраторам
-    admin_notification = f"📢 <b>Новое сообщение обратной связи (анонимно)</b>\n\n{feedback_text}"
+    # --- Формируем текст уведомления администраторам ---
+    # Теперь включает ID и ФИО
+    admin_notification = (
+        f"📢 <b>Новое сообщение обратной связи</b>\n"
+        f"👤 <b>От:</b> {user_full_name} (ID: {user_id})\n" 
+        f"💬 <b>Сообщение:</b>\n{feedback_text}"
+    )
+    
 
     for admin_id in ADMINS:
         try:
             await bot.send_message(chat_id=admin_id, text=admin_notification, parse_mode='HTML')
-            logging.info(f"Сообщение обратной связи отправлено администратору {admin_id}")
+            # --- Изменяем логирование ---
+            logging.info(f"Сообщение обратной связи от {user_full_name} (ID: {user_id}) отправлено администратору {admin_id}")
         except Exception as e:
-            logging.error(f"Не удалось отправить сообщение обратной связи администратору {admin_id}: {e}")
+            logging.error(f"Не удалось отправить сообщение обратной связи от {user_full_name} (ID: {user_id}) администратору {admin_id}: {e}")
+
 
     # Уведомляем пользователя об успешной отправке
     await message.answer(
