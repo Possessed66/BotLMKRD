@@ -3935,6 +3935,12 @@ async def process_reason_input_for_top0(message: types.Message, state: FSMContex
         return
 
     manager_id = manager_info['id']
+    if manager_id is None:
+        logging.error(f"Ошибка: manager_id для отдела '{department}' оказался None! manager_info: {manager_info}")
+        await message.answer("❌ Произошла ошибка при определении менеджера. Попробуйте позже или свяжитесь с администратором.", reply_markup=main_menu_keyboard(message.from_user.id))
+        await state.clear()
+        return
+        
     manager_first_name = manager_info.get('first_name', 'N/A')
     manager_last_name = manager_info.get('last_name', 'N/A')
     manager_full_name = f"{manager_first_name} {manager_last_name}".strip() or "Не указано"
@@ -3985,7 +3991,7 @@ async def process_reason_input_for_top0(message: types.Message, state: FSMContex
     except Exception as e:
         logging.error(f"❌ Не удалось отправить запрос менеджеру {manager_id}: {e}")
         await message.answer("❌ Не удалось отправить запрос менеджеру. Попробуйте позже.", reply_markup=main_menu_keyboard(message.from_user.id))
-        await delete_approval_request(request_id)
+        await delete_approval_request(request_id) # Удаляем запрос, если сообщение не отправилось
         await state.clear()
         return
 
