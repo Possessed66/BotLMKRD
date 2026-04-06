@@ -4602,7 +4602,6 @@ async def scheduled_cache_update():
 
 async def startup():
     """Инициализация при запуске"""
-    init_tracemalloc()
     logging.info("🟢 Бот запускается...")
     try:  
         asyncio.create_task(memory_monitor())
