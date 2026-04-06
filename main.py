@@ -4604,7 +4604,6 @@ async def startup():
     """Инициализация при запуске"""
     logging.info("🟢 Бот запускается...")
     try:  
-        asyncio.create_task(memory_monitor())
         await preload_cache()
         asyncio.create_task(scheduled_cache_update())
         asyncio.create_task(state_cleanup_task())
