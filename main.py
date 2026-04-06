@@ -7,12 +7,10 @@ import gc
 import asyncio
 import inspect
 import logging
+import psutil
 import traceback
 import time
 import threading
-import tracemalloc
-import objgraph
-import psutil
 import sqlite3
 import gspread.utils
 import uuid
@@ -150,111 +148,7 @@ async def global_error_handler(event: types.ErrorEvent, bot: Bot):
 
 
 
-# ===================== ПРОФИЛИРОВАНИЕ ПАМЯТИ =====================
 
-def init_tracemalloc():
-    """Безопасная инициализация трассировки памяти"""
-    if not tracemalloc.is_tracing():
-        tracemalloc.start()
-        logging.info("Tracemalloc initialized")
-
-
-
-
-async def memory_monitor():
-    """Мониторинг использования памяти с расширенной диагностикой"""
-    if not tracemalloc.is_tracing():
-        tracemalloc.start(10)  # Ограничиваем глубину трассировки
-    
-    cycle_count = 0
-    prev_snapshot = None
-    
-    while True:
-        try:
-            process = psutil.Process()
-            mem_info = process.memory_info()
-            
-            # Логируем общее использование
-            logging.info(
-                f"Memory: RSS={mem_info.rss / 1024 / 1024:.2f}MB, "
-                f"VMS={mem_info.vms / 1024 / 1024:.2f}MB"
-            )
-            
-            # Создаем снимок памяти
-            snapshot = tracemalloc.take_snapshot()
-            
-            # Анализируем распределение памяти
-            top_stats = snapshot.statistics('lineno')[:5]
-            for i, stat in enumerate(top_stats):
-                logging.info(
-                    f"Alloc {i+1}: {stat.size / 1024:.2f}KB in {stat.count} blocks "
-                    f"at {stat.traceback.format()[-1]}"
-                )
-            
-            # Периодический углубленный анализ
-            cycle_count += 1
-            if cycle_count >= 10:  # Каждые 60 минут
-                # Анализ типов объектов
-                logging.info("Most common object types:")
-                common_types = objgraph.most_common_types(limit=10)
-                for obj_type, count in common_types:
-                    logging.info(f"  {obj_type}: {count}")
-                
-                # Анализ роста памяти
-                if prev_snapshot:
-                    diff_stats = snapshot.compare_to(prev_snapshot, 'lineno')
-                    growth_stats = [stat for stat in diff_stats if stat.size_diff > 0][:5]
-                    
-                    if growth_stats:
-                        logging.info("Top memory growth:")
-                        for stat in growth_stats:
-                            logging.info(
-                                f"  +{stat.size_diff / 1024:.2f}KB: "
-                                f"{stat.traceback.format()[-1]}"
-                            )
-                    else:
-                        logging.info("No significant memory growth detected")
-                
-                # Сброс счетчика
-                cycle_count = 0
-                prev_snapshot = snapshot
-                gc.collect()
-            
-            await asyncio.sleep(1200)  # 20 минут
-            
-        except Exception as e:
-            logging.error(f"Memory monitor error: {str(e)}")
-            await asyncio.sleep(60)
-
-
-def profile_memory(func):
-    """Декоратор для профилирования памяти функции"""
-    def wrapper(*args, **kwargs):
-        # Проверяем и инициализируем tracemalloc при необходимости
-        if not tracemalloc.is_tracing():
-            tracemalloc.start()
-        
-        # Запоминаем текущее распределение памяти
-        start_snapshot = tracemalloc.take_snapshot()
-        
-        # Выполняем функцию
-        result = func(*args, **kwargs)
-        
-        # Анализируем использование памяти
-        end_snapshot = tracemalloc.take_snapshot()
-        top_stats = end_snapshot.compare_to(start_snapshot, 'lineno')
-        
-        # Логируем результаты
-        logging.info(f"Memory profile for {func.__name__}:")
-        for stat in top_stats[:5]:
-            logging.info(
-                f"  {stat.size_diff / 1024:.2f}KB difference, "
-                f"Total: {stat.size / 1024:.2f}KB, "
-                f"File: {stat.traceback.format()[-1]}"
-            )
-        
-        return result
-    return wrapper
 
 # ===================== КОНФИГУРАЦИЯ =====================
 
@@ -503,39 +397,35 @@ async def toggle_service_mode(enable: bool) -> None:
     await notify_admins(f"🛠 Сервисный режим {status}")
 
 async def get_user_data(user_id: str) -> Optional[Dict[str, Any]]:
-    """Получение данных пользователя с улучшенной обработкой ошибок"""
-    try:
-        cache_key = f"user_{user_id}"
-        if cache_key in cache:
-            user_data = cache[cache_key]
-            # Проверяем наличие обязательных полей
-            if all(key in user_data for key in ['shop', 'name', 'position']):
-                return user_data
-            else:
-                # Если данные неполные, запрашиваем заново
-                cache.pop(cache_key, None)
-        
-        # Загрузка данных из Google Sheets
-        users_records = pickle.loads(cache.get("users_data", b""))
-        if not users_records:
-            users_records = users_sheet.get_all_records()
-            cache["users_data"] = pickle.dumps(users_records)
-        
-        for user in users_records:
-            if str(user.get("ID пользователя", "")).strip() == str(user_id).strip():
-                user_data = {
-                    'shop': user.get("Номер магазина", "") or "Не указан",
-                    'name': user.get("Имя", "") or "Не указано",
-                    'surname': user.get("Фамилия", "") or "Не указано",
-                    'position': user.get("Должность", "") or "Не указана"
-                }
-                cache[cache_key] = user_data
-                return user_data
-        
+    cache_key = f"user_{user_id}"
+    if cache_key in users_cache:
+        return users_cache[cache_key]
+
+    # Если кэша нет, загружаем таблицу ОДИН РАЗ и кешируем построчно
+    if "users_dict" not in cache:
+        try:
+            records = users_sheet.get_all_records()
+            # Преобразуем список в словарь для O(1) поиска
+            cache["users_dict"] = {
+                str(r.get("ID пользователя", "")).strip(): r for r in records if r.get("ID пользователя")
+            }
+            logging.info(f"✅ Кэш пользователей перестроен. Всего: {len(cache['users_dict'])}")
+        except Exception as e:
+            logging.error(f"Ошибка загрузки users_dict: {e}")
+            return None
+
+    user_record = cache["users_dict"].get(str(user_id).strip())
+    if not user_record:
         return None
-    except Exception as e:
-        logging.error(f"Ошибка получения данных пользователя: {str(e)}")
-        return None
+
+    user_data = {
+        'shop': user_record.get("Номер магазина", "") or "Не указан",
+        'name': user_record.get("Имя", "") or "Не указано",
+        'surname': user_record.get("Фамилия", "") or "Не указано",
+        'position': user_record.get("Должность", "") or "Не указана"
+    }
+    users_cache[cache_key] = user_data
+    return user_data
 
 
 async def log_error(user_id: str, error: str) -> None:
@@ -3064,7 +2954,7 @@ def calculate_delivery_date(supplier_data: dict) -> Tuple[str, str]:
     )
 
 
-@profile_memory
+
 async def get_product_info(article: str, shop: str) -> Optional[Dict[str, Any]]:
     """Получение информации о товаре с расширенным логированием, используя SQLite"""
     try:
@@ -3154,7 +3044,7 @@ async def get_product_info(article: str, shop: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-@profile_memory
+
 async def preload_cache() -> None:
     """Предзагрузка кэша"""
     try:
