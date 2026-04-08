@@ -146,6 +146,53 @@ async def global_error_handler(event: types.ErrorEvent, bot: Bot):
     
     return True
 
+# ===================== ПРОФИЛИРОВАНИЕ ПАМЯТИ =====================
+
+def init_tracemalloc():
+    """Безопасная инициализация трассировки памяти"""
+    global MEMORY_PROFILING_ENABLED
+    if not tracemalloc.is_tracing():
+        try:
+            tracemalloc.start()
+            MEMORY_PROFILING_ENABLED = True
+            logging.info("Tracemalloc initialized")
+        except Exception as e:
+            logging.error(f"Failed to start tracemalloc: {e}")
+
+def stop_tracemalloc():
+    """Остановка трассировки памяти"""
+    global MEMORY_PROFILING_ENABLED
+    if tracemalloc.is_tracing():
+        tracemalloc.stop()
+        MEMORY_PROFILING_ENABLED = False
+        logging.info("Tracemalloc stopped")
+
+async def memory_monitor():
+    """Мониторинг использования памяти (запускается только если включен флаг)"""
+    while MEMORY_PROFILING_ENABLED:
+        try:
+            process = psutil.Process()
+            mem_info = process.memory_info()
+            
+            logging.info(
+                f"Memory: RSS={mem_info.rss / 1024 / 1024:.2f}MB, "
+                f"VMS={mem_info.vms / 1024 / 1024:.2f}MB"
+            )
+            
+            if tracemalloc.is_tracing():
+                snapshot = tracemalloc.take_snapshot()
+                top_stats = snapshot.statistics('lineno')[:5]
+                for i, stat in enumerate(top_stats):
+                    logging.info(
+                        f"Alloc {i+1}: {stat.size / 1024:.2f}KB in {stat.count} blocks "
+                        f"at {stat.traceback.format()[-1]}"
+                    )
+            
+            await asyncio.sleep(1200)  # 20 минут
+            
+        except Exception as e:
+            logging.error(f"Memory monitor error: {str(e)}")
+            await asyncio.sleep(60)
 
 
 
@@ -168,6 +215,8 @@ reminder_running = True
 # Кэширование
 CACHE_TTL = 43200  # 12 часов
 cache = LRUCache(maxsize=500)
+
+MEMORY_PROFILING_ENABLED = False
 
 # Загрузка переменных окружения
 from dotenv import load_dotenv
@@ -1549,6 +1598,29 @@ async def confirm_task_dispatch(message: types.Message, state: FSMContext):
 async def cancel_task_dispatch(message: types.Message, state: FSMContext):
     await message.answer("❌ Отправка отменена", reply_markup=tasks_admin_keyboard())
     await state.clear()
+
+@dp.message(Command(commands=['debug_on']))
+async def cmd_debug_on(message: types.Message):
+    if message.from_user.id not in ADMINS:
+        return
+    init_tracemalloc()
+    # Запускаем мониторинг один раз при включении, если нужно
+    # asyncio.create_task(memory_monitor()) # Можно раскомментировать, если хотите активный мониторинг в консоль
+    await message.answer("🟢 Режим отладки памяти ВКЛЮЧЕН. tracemalloc запущен.")
+
+@dp.message(Command(commands=['debug_off']))
+async def cmd_debug_off(message: types.Message):
+    if message.from_user.id not in ADMINS:
+        return
+    stop_tracemalloc()
+    await message.answer("🔴 Режим отладки памяти ВЫКЛЮЧЕН. tracemalloc остановлен.")
+
+@dp.message(Command(commands=['gc_collect']))
+async def cmd_gc_collect(message: types.Message):
+    if message.from_user.id not in ADMINS:
+        return
+    collected = gc.collect()
+    await message.answer(f"🗑️ Сборка мусора выполнена. Удалено объектов: {collected}")
 
 
 # --- Рефакторинг handle_mytasks ---
@@ -3053,7 +3125,25 @@ async def get_product_info(article: str, shop: str) -> Optional[Dict[str, Any]]:
 
 
 
+
 async def preload_cache() -> None:
+    """Предзагрузка кэша (ОПТИМИЗИРОВАНО)"""
+    try:
+        # Кэширование пользователей
+        users_records = users_sheet.get_all_records()
+        # --- ИСПРАВЛЕНО: Храним объект ---
+        cache["users_data"] = users_records 
+        
+        managers_sheet = main_spreadsheet.worksheet(MANAGERS_SHEET_NAME)
+        managers_records = managers_sheet.get_all_records()
+        # --- ИСПРАВЛЕНО: Храним объект ---
+        cache["managers_data"] = managers_records
+        
+        cache_size_users = len(str(users_records)) / 1024 / 1024 # Примерная оценка
+        logging.info(f"✅ Кэш пользователей загружен. Размер ~ {cache_size_users:.2f} MB")
+        logging.info("✅ Кэш успешно загружен (без pickle)")
+    except Exception as e:
+        logging.error(f"Ошибка загрузки кэша: {str(e)}")async def preload_cache() -> None:
     """Предзагрузка кэша"""
     try:
         # Кэширование пользователей
