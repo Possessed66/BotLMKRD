@@ -397,35 +397,43 @@ async def toggle_service_mode(enable: bool) -> None:
     await notify_admins(f"🛠 Сервисный режим {status}")
 
 async def get_user_data(user_id: str) -> Optional[Dict[str, Any]]:
-    cache_key = f"user_{user_id}"
-    if cache_key in users_cache:
-        return users_cache[cache_key]
-
-    # Если кэша нет, загружаем таблицу ОДИН РАЗ и кешируем построчно
-    if "users_dict" not in cache:
-        try:
-            records = users_sheet.get_all_records()
-            # Преобразуем список в словарь для O(1) поиска
-            cache["users_dict"] = {
-                str(r.get("ID пользователя", "")).strip(): r for r in records if r.get("ID пользователя")
-            }
-            logging.info(f"✅ Кэш пользователей перестроен. Всего: {len(cache['users_dict'])}")
-        except Exception as e:
-            logging.error(f"Ошибка загрузки users_dict: {e}")
-            return None
-
-    user_record = cache["users_dict"].get(str(user_id).strip())
-    if not user_record:
+    """Получение данных пользователя (ОПТИМИЗИРОВАНО: без pickle)"""
+    try:
+        cache_key = f"user_{user_id}"
+        # Сначала проверяем кэш конкретного пользователя
+        if cache_key in cache:
+            user_data = cache[cache_key]
+            if all(key in user_data for key in ['shop', 'name', 'position']):
+                return user_data
+            else:
+                cache.pop(cache_key, None)
+        
+        # Загрузка данных из Google Sheets
+        # --- ИСПРАВЛЕНО: Берем объект напрямую из кэша ---
+        users_records = cache.get("users_data")
+        
+        # Если кэш пуст, загружаем из сети
+        if not users_records:
+            users_records = users_sheet.get_all_records()
+            # Кэшируем сам объект (список словарей), а не байты
+            cache["users_data"] = users_records
+            logging.info("Кэш пользователей загружен из сети.")
+        
+        for user in users_records:
+            if str(user.get("ID пользователя", "")).strip() == str(user_id).strip():
+                user_data = {
+                    'shop': user.get("Номер магазина", "") or "Не указан",
+                    'name': user.get("Имя", "") or "Не указано",
+                    'surname': user.get("Фамилия", "") or "Не указано",
+                    'position': user.get("Должность", "") or "Не указана"
+                }
+                cache[cache_key] = user_data
+                return user_data
+        
         return None
-
-    user_data = {
-        'shop': user_record.get("Номер магазина", "") or "Не указан",
-        'name': user_record.get("Имя", "") or "Не указано",
-        'surname': user_record.get("Фамилия", "") or "Не указано",
-        'position': user_record.get("Должность", "") or "Не указана"
-    }
-    users_cache[cache_key] = user_data
-    return user_data
+    except Exception as e:
+        logging.error(f"Ошибка получения данных пользователя: {str(e)}")
+        return None
 
 
 async def log_error(user_id: str, error: str) -> None:
@@ -3050,13 +3058,13 @@ async def preload_cache() -> None:
     try:
         # Кэширование пользователей
         users_records = users_sheet.get_all_records()
-        cache["users_data"] = pickle.dumps(users_records)
+        cache["users_data"] = users_records
         
         managers_sheet = main_spreadsheet.worksheet(MANAGERS_SHEET_NAME)
         
         managers_records = managers_sheet.get_all_records()
-        cache["managers_data"] = pickle.dumps(managers_records)
-        cache_size_managers = len(pickle.dumps(managers_records)) / 1024 / 1024
+        cache["managers_data"] = managers_records
+        cache_size_users = len(str(users_records)) / 1024 / 1024
         logging.info(f"✅ Кэш менеджеров (лист '{MANAGERS_SHEET_NAME}') загружен. Размер: {cache_size_managers:.2f} MB")
         
         cache_size = sum(len(pickle.dumps(v)) for v in cache.values()) / 1024 / 1024
