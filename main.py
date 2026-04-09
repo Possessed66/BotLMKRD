@@ -3127,9 +3127,8 @@ async def get_product_info(article: str, shop: str) -> Optional[Dict[str, Any]]:
 
 
 async def preload_cache() -> None:
-    """Предзагрузка кэша (ОПТИМИЗИРОВАНО)"""
     try:
-        # Кэширование пользователей
+        
         users_records = users_sheet.get_all_records()
         # --- ИСПРАВЛЕНО: Храним объект ---
         cache["users_data"] = users_records 
