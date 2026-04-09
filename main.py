@@ -3142,26 +3142,8 @@ async def preload_cache() -> None:
         logging.info(f"✅ Кэш пользователей загружен. Размер ~ {cache_size_users:.2f} MB")
         logging.info("✅ Кэш успешно загружен (без pickle)")
     except Exception as e:
-        logging.error(f"Ошибка загрузки кэша: {str(e)}")async def preload_cache() -> None:
-    """Предзагрузка кэша"""
-    try:
-        # Кэширование пользователей
-        users_records = users_sheet.get_all_records()
-        cache["users_data"] = users_records
-        
-        managers_sheet = main_spreadsheet.worksheet(MANAGERS_SHEET_NAME)
-        
-        managers_records = managers_sheet.get_all_records()
-        cache["managers_data"] = managers_records
-        cache_size_users = len(str(users_records)) / 1024 / 1024
-        logging.info(f"✅ Кэш менеджеров (лист '{MANAGERS_SHEET_NAME}') загружен. Размер: {cache_size_managers:.2f} MB")
-        
-        cache_size = sum(len(pickle.dumps(v)) for v in cache.values()) / 1024 / 1024
-        logging.info(f"✅ Кэш пользователей загружен. Размер: {cache_size:.2f} MB")
-        logging.info("✅ Кэш успешно загружен (без gamma_index)")
-    except Exception as e:
         logging.error(f"Ошибка загрузки кэша: {str(e)}")
-
+        
 
 # === Заменить полностью функцию get_product_data_from_db ===
 async def get_product_data_from_db(article: str, shop: str) -> Optional[Dict[str, Any]]:
