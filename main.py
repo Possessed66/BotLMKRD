@@ -3491,7 +3491,7 @@ async def process_shop(message: types.Message, state: FSMContext):
     try:
         # Перезагружаем только кэш пользователей
         users_records = users_sheet.get_all_records()
-        cache["users_data"] = pickle.dumps(users_records)
+        cache["users_data"] = users_records
         logging.info(f"✅ Кэш пользователей обновлен после регистрации пользователя {message.from_user.id}")
     except Exception as e:
         logging.error(f"Ошибка обновления кэша пользователей после регистрации {message.from_user.id}: {e}")
