@@ -3329,12 +3329,7 @@ async def service_mode_middleware(handler, event, data):
 
 @dp.update.middleware()
 async def activity_tracker_middleware(handler, event, data):
-    """
-    Middleware для отслеживания времени последней активности пользователя.
-    Обновляет метку времени 'last_activity' в FSMContext после успешного
-    выполнения обработчика события (handler).
-    """
-    # Получаем объект состояния из data
+   
     state = data.get('state')
 
     if state:
