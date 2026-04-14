@@ -15,6 +15,7 @@ import sqlite3
 import gspread.utils
 import uuid
 import tempfile
+import httpx
 from contextlib import contextmanager, closing, suppress
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.markdown import markdown_decoration
