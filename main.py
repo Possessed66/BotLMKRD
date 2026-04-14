@@ -3329,27 +3329,37 @@ async def service_mode_middleware(handler, event, data):
 
 @dp.update.middleware()
 async def activity_tracker_middleware(handler, event, data):
-    """Улучшенный трекинг активности пользователя с обработкой ошибок"""
-    try:
-        state = data.get('state')
-        if state:
-            # Получаем данные состояния
-            state_data = await state.get_data()
+    """
+    Middleware для отслеживания времени последней активности пользователя.
+    Обновляет метку времени 'last_activity' в FSMContext после успешного
+    выполнения обработчика события (handler).
+    """
+    # Получаем объект состояния из data
+    state = data.get('state')
+
+    if state:
+        try:
             
-            # Обновляем активность ПОСЛЕ обработки сообщения
             response = await handler(event, data)
+
             
-            # Обновляем время активности
-            new_data = await state.get_data()
-            new_data['last_activity'] = datetime.now().isoformat()
-            await state.set_data(new_data)
-            
+            current_state_data = await state.get_data()
+            # Обновляем метку времени
+            current_state_data['last_activity'] = datetime.now().isoformat()
+            # Сохраняем обновлённые данные обратно в состояние
+            await state.set_data(current_state_data)
+
+            # Возвращаем ответ, который дал handler
             return response
+
+        except Exception as e:
+         
+            logging.error(f"Ошибка в activity_tracker_middleware: {type(e).__name__}: {e}")
+            
+            raise 
+
+    else:
         
-        return await handler(event, data)
-        
-    except Exception as e:
-        logging.error(f"Ошибка в трекере активности: {str(e)}")
         return await handler(event, data)
 
 
