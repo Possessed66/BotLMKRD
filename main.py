@@ -27,7 +27,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.enums import ParseMode
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
-from aiogram.types import ReplyKeyboardRemove, File, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardRemove, File, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton, Message
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import Command
 from google.oauth2.service_account import Credentials
