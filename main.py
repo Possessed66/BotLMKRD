@@ -232,17 +232,6 @@ try:
 except KeyError as e:
     raise RuntimeError(f"Отсутствует обязательная переменная: {e}")
 
-
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
-
-dp = Dispatcher() 
-
-
-
-
 GOOGLE_CREDENTIALS_FILE = "/root/BotLMKRD/google-credentials.json"
 with open(GOOGLE_CREDENTIALS_FILE, "r", encoding="utf-8") as f:
     GOOGLE_CREDS = json.load(f)
@@ -268,7 +257,6 @@ client = gspread.authorize(credentials)
 
 bot = Bot(
     token=BOT_TOKEN,
-    session=http_client,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 
