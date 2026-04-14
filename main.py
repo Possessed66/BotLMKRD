@@ -229,28 +229,13 @@ load_dotenv('secret.env')
 
 try:
     BOT_TOKEN = os.environ['BOT_TOKEN']
-    PROXY_URL = os.environ.get('PROXY_URL')  # socks5://127.0.0.1:1080
 except KeyError as e:
     raise RuntimeError(f"Отсутствует обязательная переменная: {e}")
 
 
-# Проверка обязательных переменных
-session = None
-if PROXY_URL:
-    
-    connector = ProxyConnector.from_url(PROXY_URL)
-    
-    aiohttp_session = aiohttp.ClientSession(connector=connector)
-    
-    session = AiohttpSession(aiohttp_session)
-    print(f"✅ Бот запущен через прокси: {PROXY_URL}")
-else:
-    print("⚠️ Бот запущен без прокси (прямое соединение)")
-
-# Создание бота с кастомной сессией
 bot = Bot(
     token=BOT_TOKEN,
-    session=session  # ← Передаём AiohttpSession
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 
 dp = Dispatcher() 
@@ -4767,6 +4752,10 @@ async def shutdown():
 async def main():
     """Главная функция запуска"""
     try:
+        if PROXY_URL:
+        import os
+        os.environ['ALL_PROXY'] = PROXY_URL
+        print(f"✅ Прокси настроен через ALL_PROXY: {PROXY_URL}")
         await startup()
         initialize_approval_requests_table()
         initialize_order_queue_table()
