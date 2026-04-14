@@ -225,8 +225,22 @@ load_dotenv('secret.env')
 # Проверка обязательных переменных
 try:
     BOT_TOKEN = os.environ['BOT_TOKEN']
+    PROXY_URL = os.environ.get('PROXY_URL')  # Может отсутствовать
 except KeyError as e:
     raise RuntimeError(f"Отсутствует обязательная переменная: {e}")
+
+http_client = None
+if PROXY_URL:
+    http_client = httpx.AsyncClient(
+        proxy=PROXY_URL,
+        timeout=60  # Увеличенный таймаут для стабильности
+    )
+    print(f"✅ Бот запущен через прокси: {PROXY_URL}")
+else:
+    print("⚠️ Бот запущен без прокси (прямое соединение)")
+
+
+
 
 GOOGLE_CREDENTIALS_FILE = "/root/BotLMKRD/google-credentials.json"
 with open(GOOGLE_CREDENTIALS_FILE, "r", encoding="utf-8") as f:
@@ -253,6 +267,7 @@ client = gspread.authorize(credentials)
 
 bot = Bot(
     token=BOT_TOKEN,
+    session=http_client,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 
@@ -3419,6 +3434,13 @@ async def state_cleanup_task():
 
 
 # ===================== ОБРАБОТЧИКИ КОМАНД =====================
+@dp.message(Command("checkip"))
+async def check_ip(message: Message):
+    import httpx
+    async with httpx.AsyncClient(proxy=PROXY_URL) as client:
+        response = await client.get("https://httpbin.org/ip")
+        await message.answer(f"Мой IP: {response.json()['origin']}")
+
 @dp.message(Command("start"))
 async def start_handler(message: types.Message, state: FSMContext):
     """Обработчик команды /start"""
