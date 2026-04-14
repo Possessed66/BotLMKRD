@@ -256,8 +256,19 @@ credentials = Credentials.from_service_account_info(
 )
 client = gspread.authorize(credentials)
 
+bot_session = None
+if PROXY_URL:
+    try:
+        connector = ProxyConnector.from_url(PROXY_URL)
+        aiohttp_session = aiohttp.ClientSession(connector=connector)
+        bot_session = AiohttpSession(aiohttp_session)
+        logging.info(f"✅ Прокси настроен для Telegram: {PROXY_URL}")
+    except Exception as e:
+        logging.error(f"❌ Ошибка настройки прокси: {e}")
+
 bot = Bot(
     token=BOT_TOKEN,
+    session=bot_session,  # ← Передаём сессию с прокси
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 
@@ -4741,10 +4752,6 @@ async def shutdown():
 async def main():
     """Главная функция запуска"""
     try:
-        if PROXY_URL:
-            import os
-            os.environ['ALL_PROXY'] = PROXY_URL
-            print(f"✅ Прокси настроен через ALL_PROXY: {PROXY_URL}")
         await startup()
         initialize_approval_requests_table()
         initialize_order_queue_table()
