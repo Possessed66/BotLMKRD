@@ -226,6 +226,14 @@ MEMORY_PROFILING_ENABLED = False
 from dotenv import load_dotenv
 load_dotenv('secret.env')
 
+
+try:
+    BOT_TOKEN = os.environ['BOT_TOKEN']
+    PROXY_URL = os.environ.get('PROXY_URL')  # socks5://127.0.0.1:1080
+except KeyError as e:
+    raise RuntimeError(f"Отсутствует обязательная переменная: {e}")
+
+
 # Проверка обязательных переменных
 session = None
 if PROXY_URL:
