@@ -229,6 +229,7 @@ load_dotenv('secret.env')
 
 try:
     BOT_TOKEN = os.environ['BOT_TOKEN']
+    PROXY_URL = os.environ.get('PROXY_URL')
 except KeyError as e:
     raise RuntimeError(f"Отсутствует обязательная переменная: {e}")
 
