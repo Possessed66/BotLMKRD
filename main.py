@@ -16,6 +16,9 @@ import gspread.utils
 import uuid
 import tempfile
 import httpx
+import aiohttp
+from aiohttp_socks import ProxyConnector
+from aiogram.client.session.aiohttp import AiohttpSession
 from contextlib import contextmanager, closing, suppress
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.markdown import markdown_decoration
@@ -224,21 +227,25 @@ from dotenv import load_dotenv
 load_dotenv('secret.env')
 
 # Проверка обязательных переменных
-try:
-    BOT_TOKEN = os.environ['BOT_TOKEN']
-    PROXY_URL = os.environ.get('PROXY_URL')  # Может отсутствовать
-except KeyError as e:
-    raise RuntimeError(f"Отсутствует обязательная переменная: {e}")
-
-http_client = None
+session = None
 if PROXY_URL:
-    http_client = httpx.AsyncClient(
-        proxy=PROXY_URL,
-        timeout=60  # Увеличенный таймаут для стабильности
-    )
+    
+    connector = ProxyConnector.from_url(PROXY_URL)
+    
+    aiohttp_session = aiohttp.ClientSession(connector=connector)
+    
+    session = AiohttpSession(aiohttp_session)
     print(f"✅ Бот запущен через прокси: {PROXY_URL}")
 else:
     print("⚠️ Бот запущен без прокси (прямое соединение)")
+
+# Создание бота с кастомной сессией
+bot = Bot(
+    token=BOT_TOKEN,
+    session=session  # ← Передаём AiohttpSession
+)
+
+dp = Dispatcher() 
 
 
 
@@ -3435,12 +3442,17 @@ async def state_cleanup_task():
 
 
 # ===================== ОБРАБОТЧИКИ КОМАНД =====================
-@dp.message(Command("checkip"))
+@dp.message(F.text == "/checkip")
 async def check_ip(message: Message):
-    import httpx
-    async with httpx.AsyncClient(proxy=PROXY_URL) as client:
-        response = await client.get("https://httpbin.org/ip")
-        await message.answer(f"Мой IP: {response.json()['origin']}")
+    try:
+        # Используем aiohttp для запроса через тот же прокси
+        connector = ProxyConnector.from_url(PROXY_URL)
+        async with aiohttp.ClientSession(connector=connector) as sess:
+            async with sess.get("https://httpbin.org/ip", timeout=10) as response:
+                data = await response.json()
+                await message.answer(f"🌍 Мой IP: {data['origin']}")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 @dp.message(Command("start"))
 async def start_handler(message: types.Message, state: FSMContext):
