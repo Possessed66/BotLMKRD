@@ -4753,9 +4753,9 @@ async def main():
     """Главная функция запуска"""
     try:
         if PROXY_URL:
-        import os
-        os.environ['ALL_PROXY'] = PROXY_URL
-        print(f"✅ Прокси настроен через ALL_PROXY: {PROXY_URL}")
+            import os
+            os.environ['ALL_PROXY'] = PROXY_URL
+            print(f"✅ Прокси настроен через ALL_PROXY: {PROXY_URL}")
         await startup()
         initialize_approval_requests_table()
         initialize_order_queue_table()
